@@ -7,6 +7,7 @@ import { translateSearchKeyword } from './settings-search-keywords'
 import { getRepositoryGitAuthorSearchEntries } from './repository-git-author-search-entries'
 import { getRepositoryGitHooksSearchEntries } from './repository-git-hooks-search-entries'
 import { getRepositoryGitWorktreeSearchEntries } from './repository-git-worktree-search-entries'
+import { lificCopy } from './lific-integration-copy'
 
 type RepositoryPaneSearchOptions = {
   isLocalWindowsProject?: boolean
@@ -163,6 +164,19 @@ export function getRepositoryPaneSearchEntries(
           }
         ]),
     ...(isFolder ? [] : getRepositoryGitWorktreeSearchEntries(repo)),
+    {
+      title: lificCopy.brand(),
+      description: lificCopy.searchEntryDescription(),
+      keywords: [
+        repo.displayName,
+        lificCopy.searchKeywordLific(),
+        lificCopy.searchKeywordMcp(),
+        lificCopy.searchKeywordIssues(),
+        lificCopy.searchKeywordPlans(),
+        lificCopy.searchKeywordTasks(),
+        lificCopy.searchKeywordAgentMemory()
+      ]
+    },
     {
       title: translate('auto.components.settings.repository.search.c5266c2c9d', 'Remove Project'),
       description: translate(

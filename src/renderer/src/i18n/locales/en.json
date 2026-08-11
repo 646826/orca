@@ -63,6 +63,107 @@
         "title": "Show Menu Bar Icon",
         "description": "Keep an Orca shortcut and activity indicator in the macOS menu bar."
       }
+    },
+    "lific": {
+      "brand": "Lific",
+      "description": "Host-aware MCP, persistent plans, issue context and native Tasks for this project.",
+      "executionHost": "Execution host: {{host}}",
+      "refreshStatus": "Refresh Lific status",
+      "profile": {
+        "executionTarget": "Execution target",
+        "currentRuntime": "Current Orca runtime",
+        "wslDistribution": "WSL distribution",
+        "sshHost": "SSH host",
+        "sshDestination": "SSH destination",
+        "sshDestinationPlaceholder": "user@example.com",
+        "sshPort": "SSH port",
+        "identityFile": "Identity file",
+        "optionalPath": "Optional path",
+        "connectionMode": "Connection mode",
+        "httpServer": "HTTP server",
+        "localStdio": "Local SQLite / stdio",
+        "agentHarness": "Agent harness",
+        "serverUrl": "Server URL",
+        "mcpUrl": "MCP URL",
+        "managementCredential": "Management credential",
+        "protectedCredentialPlaceholder": "Stored encrypted; never returned to renderer",
+        "agentAuthentication": "Agent authentication",
+        "perHarnessBot": "Per-harness bot (recommended)",
+        "oauthHeaderless": "OAuth / headerless",
+        "databasePath": "Lific database path on this host",
+        "projectIdentifier": "Lific project identifier",
+        "projectIdentifierPlaceholder": "APP",
+        "clientConfigScope": "Client config scope",
+        "globalRecommended": "Global (recommended)",
+        "project": "Project"
+      },
+      "actions": {
+        "save": "Save",
+        "preview": "Preview",
+        "connect": "Connect",
+        "reconnect": "Reconnect / rotate",
+        "disconnect": "Disconnect",
+        "updateAgentsMd": "Update AGENTS.md"
+      },
+      "errors": {
+        "operationFailed": "Lific operation failed",
+        "sshDestinationRequired": "SSH destination is required",
+        "sshPortInvalid": "SSH port must be an integer from 1 to 65535",
+        "wslDistributionRequired": "WSL distribution is required",
+        "serverUrlsRequired": "Lific server URL and MCP URL are required",
+        "databasePathRequired": "Lific database path is required",
+        "saveBeforePreview": "Save the Lific profile before previewing client changes"
+      },
+      "toasts": {
+        "mcpConnected": "Lific MCP connected",
+        "cliFallbackEnabled": "Lific CLI fallback enabled",
+        "reconnected": "Lific harness reconnected with a replacement credential",
+        "disconnected": "Lific harness disconnected",
+        "agentsMdUpdated": "AGENTS.md updated"
+      },
+      "status": {
+        "notChecked": "Not checked",
+        "ready": "Ready · checked {{time}}",
+        "notInstalled": "Lific is not installed on this execution host",
+        "notInitialized": "Lific is installed but no instance is initialized",
+        "notConfigured": "The selected harness is not configured",
+        "unsupportedAgent": "No native MCP mapping for {{agent}}; CLI fallback will be used"
+      },
+      "tasks": {
+        "title": "Lific Task Console",
+        "description": "Native projects, issues, plans, pages, comments and search through Orca runtime RPC.",
+        "refreshProjects": "Refresh Lific projects",
+        "saveAndConnect": "Save and connect a profile to use native Lific Tasks.",
+        "noProjects": "No projects loaded",
+        "searchLabel": "Search issues and pages",
+        "searchPlaceholder": "authentication, APP-42, design notes…",
+        "search": "Search",
+        "searchResults": "Search results ({{count}})",
+        "issues": "Issues ({{count}})",
+        "noMatchingIssues": "No matching issues.",
+        "status": "Status",
+        "statusPlaceholder": "started, done…",
+        "update": "Update",
+        "comments": "Comments ({{count}})",
+        "commentPlaceholder": "Add a verified progress or completion note",
+        "comment": "Comment",
+        "selectIssue": "Select an issue to read it, change status and add comments.",
+        "plans": "Plans ({{count}})",
+        "noPlans": "No plans.",
+        "topLevelSteps": "{{count}} top-level steps",
+        "pages": "Pages ({{count}})",
+        "noPages": "No pages.",
+        "priority": "priority {{priority}}"
+      },
+      "search": {
+        "description": "Configure host-aware Lific MCP, issue context, plans, and Tasks.",
+        "keywordLific": "lific",
+        "keywordMcp": "mcp",
+        "keywordIssues": "issues",
+        "keywordPlans": "plans",
+        "keywordTasks": "tasks",
+        "keywordAgentMemory": "agent memory"
+      }
     }
   },
   "menu": {

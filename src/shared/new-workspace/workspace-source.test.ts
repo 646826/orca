@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildJiraWorkspaceSource,
+  buildLificWorkspaceSource,
   buildLinearWorkspaceSource,
   buildWorkspaceSourceSelection,
   getWorkspaceSourceName,
@@ -31,6 +32,28 @@ describe('workspace source policy', () => {
       seedName: 'eng-42-ship-mobile-parity',
       displayName: 'ENG-42 Ship mobile parity'
     })
+  })
+
+  it('builds a stable Lific linked issue identity and preserves it across repo changes', () => {
+    const lific = buildLificWorkspaceSource({
+      identifier: 'APP-42',
+      title: 'Make remote provisioning reliable',
+      url: 'https://lific.example/issues/APP-42'
+    })
+
+    expect(lific).toEqual({
+      provider: 'lific',
+      type: 'issue',
+      number: 0,
+      title: 'Make remote provisioning reliable',
+      url: 'https://lific.example/issues/APP-42',
+      identifier: 'APP-42'
+    })
+    expect(buildWorkspaceSourceSelection({ linkedWorkItem: lific })).toMatchObject({
+      kind: 'lific',
+      label: 'Make remote provisioning reliable'
+    })
+    expect(shouldPreserveWorkspaceSourceOnRepoChange(lific)).toBe(true)
   })
 
   it('persists a Jira title without repeating its separately stored identifier', () => {

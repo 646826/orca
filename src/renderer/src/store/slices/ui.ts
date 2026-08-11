@@ -26,6 +26,7 @@ import type {
   ProjectOrderBy,
   WorktreeCardProperty,
   WorktreeCardMode,
+  WorkItemProvider,
   WorkspaceHostOrder,
   WorkspaceHostScope,
   VisibleWorkspaceHostIds,
@@ -715,7 +716,7 @@ export type UISlice = {
     note: string
     attachments: string[]
     linkedWorkItem: {
-      provider?: 'github' | 'gitlab' | 'linear' | 'jira'
+      provider?: WorkItemProvider
       type: 'issue' | 'pr' | 'mr'
       number: number
       title: string

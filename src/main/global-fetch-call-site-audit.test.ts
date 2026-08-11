@@ -19,6 +19,7 @@ const AUDITED_GLOBAL_FETCH_LINES = new Map<string, number>([
   ['main/azure-devops/azure-devops-api-request.ts', 1],
   ['main/bitbucket/client.ts', 1],
   ['main/gitea/client.ts', 1],
+  ['main/lific/lific-rest-client.ts', 1],
   ['main/orca-profiles/profile-cloud-client.ts', 1],
   ['main/orca-profiles/profile-cloud-org-members-client.ts', 1],
   ['main/rate-limits/codex-fetcher.ts', 3],

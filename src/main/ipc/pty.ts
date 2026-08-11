@@ -153,6 +153,10 @@ import {
 import { parseWslPath, wslUncDirectoryExistsAsync } from '../wsl'
 import { mergePersistedWindowsPath, resolvePathEnvKey } from '../pty/windows-environment-path'
 import { addOrcaWslInteropEnv, stampWslOrchestrationCompatibilityHost } from '../pty/wsl-orca-env'
+import {
+  applyLificAgentLaunchEnv,
+  resolveLificPtyExecutionHostId
+} from '../lific/lific-agent-launch-context'
 import { PtyProducerFlowController } from './pty-producer-flow-control'
 import { beginTerminalInstall } from './watcher-removal-gate'
 import {
@@ -2455,6 +2459,15 @@ export function registerPtyHandlers(
           agentStatusHooksEnabled: isAgentStatusHooksEnabled(getSettings?.()),
           networkProxySettings: getSettings?.()
         })
+        applyLificAgentLaunchEnv(env, {
+          worktreeId: baseEnv.ORCA_WORKTREE_ID,
+          launchAgent: ctx?.launchAgent,
+          executionHostId: resolveLificPtyExecutionHostId({
+            isWsl: ctx?.isWsl,
+            wslDistro: ctx?.wslDistro,
+            runtimeHostId: process.env.ORCA_EXECUTION_HOST_ID
+          })
+        })
         // Why: agents need their terminal handle at process start to self-identify in orchestration messages without an extra RPC.
         const requestedHandle = baseEnv.ORCA_TERMINAL_HANDLE
         const preAllocatedHandle =
@@ -4672,6 +4685,21 @@ export function registerPtyHandlers(
         )
         promoteAgentTeamsShimPath(env, requestedAgentTeamsPath)
       }
+      const lificEnv = env ?? {}
+      applyLificAgentLaunchEnv(lificEnv, {
+        worktreeId: args.worktreeId,
+        launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined,
+        executionHostId: args.connectionId
+          ? toSshExecutionHostId(args.connectionId)
+          : resolveLificPtyExecutionHostId({
+              isWsl: codexSelectionTarget.runtime === 'wsl',
+              wslDistro: expectedWslDistro,
+              runtimeHostId: process.env.ORCA_EXECUTION_HOST_ID
+            })
+      })
+      if (env !== undefined || Object.keys(lificEnv).length > 0) {
+        env = lificEnv
+      }
 
       const authEnvToDelete = claudeAuth?.stripAuthEnv
         ? [...CLAUDE_AUTH_ENV_VARS, 'ANTHROPIC_CUSTOM_HEADERS']
@@ -6243,6 +6271,21 @@ export function registerPtyHandlers(
             }
             throw err
           }
+        }
+        const lificEnv = env ?? {}
+        applyLificAgentLaunchEnv(lificEnv, {
+          worktreeId: args.worktreeId,
+          launchAgent: isTuiAgent(args.launchAgent) ? args.launchAgent : undefined,
+          executionHostId: args.connectionId
+            ? toSshExecutionHostId(args.connectionId)
+            : resolveLificPtyExecutionHostId({
+                isWsl: codexSelectionTarget.runtime === 'wsl',
+                wslDistro: expectedWslDistro,
+                runtimeHostId: process.env.ORCA_EXECUTION_HOST_ID
+              })
+        })
+        if (env !== undefined || Object.keys(lificEnv).length > 0) {
+          env = lificEnv
         }
         spawnTiming.mark('host_env')
         const spawnEnv = preAllocatedHandle

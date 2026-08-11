@@ -92,6 +92,24 @@
       ]
     },
     {
+      "name": "orca-lific",
+      "sourcePath": "skills/orca-lific",
+      "releaseRevision": 1,
+      "packageDigest": "55b17373f90e059769905a961542376d734e567007ee5a1308cf376bc018fb90",
+      "gitTreeSha": "b1537c2d8cc756d95af0c8224f9ac04a50775883",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 1269,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "b68399136ad1c703bbfb241841475c36872d51c3d966f56bdd199a872058d638",
+          "textNormalizedSha256": "b68399136ad1c703bbfb241841475c36872d51c3d966f56bdd199a872058d638",
+          "identitySha256": "b68399136ad1c703bbfb241841475c36872d51c3d966f56bdd199a872058d638"
+        }
+      ]
+    },
+    {
       "name": "orca-linear",
       "sourcePath": "skills/orca-linear",
       "releaseRevision": 8,

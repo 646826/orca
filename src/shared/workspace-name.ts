@@ -1,3 +1,4 @@
+import type { WorkItemProvider } from './task-providers'
 import {
   collectCompactWorkspaceWords,
   foldWorkspaceNameWhitespaceToHyphen
@@ -46,7 +47,7 @@ export type WorkspaceIntentWorkItem = {
   type: 'issue' | 'pr' | 'mr'
   number: number
   title: string
-  provider?: 'github' | 'gitlab' | 'linear' | 'jira'
+  provider?: WorkItemProvider
   linearIdentifier?: string
   jiraIdentifier?: string
 }

@@ -19,7 +19,7 @@ import type { VoiceSettings } from './speech-types'
 import type { WorkspaceCleanupUIState } from './workspace-cleanup'
 import type { LargeDiffRenderLimit } from './large-diff-render-limit'
 import type { GitLabProjectSettings } from './gitlab-types'
-import type { TaskProvider } from './task-providers'
+import type { TaskProvider, WorkItemProvider } from './task-providers'
 import type { FeatureTipId } from './feature-tips'
 import type { ContextualTourId } from './contextual-tours'
 import type {
@@ -58,7 +58,7 @@ import type { ComputerAwakeMode } from './computer-awake-mode'
 // Re-exported for backward compat with renderer call sites that import
 // `WorkspaceCreateTelemetrySource` from '../../../shared/types'.
 export type { WorkspaceSource as WorkspaceCreateTelemetrySource } from './workspace-source'
-export type { TaskProvider } from './task-providers'
+export type { TaskProvider, WorkItemProvider } from './task-providers'
 export type {
   GitBranchChangeStatus,
   GitConflictKind,
@@ -358,11 +358,13 @@ export type FolderWorkspace = {
 }
 
 export type WorkspaceLinkedItem = {
-  provider: 'github' | 'gitlab' | 'linear' | 'jira'
+  provider: WorkItemProvider
   type: 'issue' | 'pr' | 'mr'
   number: number
   title: string
   url: string
+  /** Provider-neutral human-readable work item identifier, e.g. APP-42. */
+  identifier?: string
   linearIdentifier?: string
   jiraIdentifier?: string
   repoId?: string
