@@ -16,6 +16,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { RepositoryHooksSection } from './RepositoryHooksSection'
 import { McpConfigSection } from './McpConfigSection'
+import { LificIntegrationSection } from './LificIntegrationSection'
 import { WorktreeSymlinksSection } from './WorktreeSymlinksSection'
 import { SparsePresetSettingsSection } from './SparsePresetSettingsSection'
 import { RepositorySourceControlAiSection } from './RepositorySourceControlAiSection'
@@ -34,7 +35,7 @@ import { matchesRepositoryIdentitySearch } from './repository-identity-search'
 import { RepositoryWorktreeDefaultsSection } from './RepositoryWorktreeDefaultsSection'
 import { getProjectRuntimeSessionSummary } from './repository-runtime-session-summary'
 export { getRepositoryPaneSearchEntries }
-export { matchesRepositoryIdentitySearch } from './repository-identity-search'
+export { matchesRepositoryIdentitySearch }
 
 type RepositoryPaneRepoUpdate = Omit<Partial<Repo>, 'sourceControlAi'> & {
   sourceControlAi?: Repo['sourceControlAi'] | null
@@ -187,6 +188,7 @@ export function RepositoryPane({
     ].includes(entry.title)
   )
   const mcpEntries = allEntries.filter((entry) => entry.title === 'MCP Configs')
+  const lificEntries = allEntries.filter((entry) => entry.title === 'Lific')
   const symlinkEntries = allEntries.filter((entry) => entry.title === 'Worktree Shared Paths')
   const sourceControlAiEntries = allEntries.filter((entry) => entry.title === 'Git AI Author')
   const hostSetupEntries = allEntries.filter((entry) => entry.title === 'Available Hosts')
@@ -376,6 +378,9 @@ export function RepositoryPane({
     !isFolder &&
     (forceFullPaneForRepoMatch || matchesSettingsSearch(searchQuery, sparsePresetEntries)) ? (
       <SparsePresetSettingsSection key="sparse-presets" repoId={repo.id} />
+    ) : null,
+    forceFullPaneForRepoMatch || matchesSettingsSearch(searchQuery, lificEntries) ? (
+      <LificIntegrationSection key="lific" repo={repo} />
     ) : null,
     !isFolder && (forceFullPaneForRepoMatch || matchesSettingsSearch(searchQuery, mcpEntries)) ? (
       <McpConfigSection key="mcp-configs" repo={repo} />

@@ -8,6 +8,10 @@ import {
 } from './task-providers'
 
 describe('task providers', () => {
+  it('keeps Lific as a linked-work-item provider without exposing an unimplemented Tasks-page source', () => {
+    expect(normalizeVisibleTaskProviders(['lific', 'github'])).toEqual(['github'])
+  })
+
   it('normalizes provider lists while preserving supported order', () => {
     expect(normalizeVisibleTaskProviders(['gitlab', 'unknown', 'gitlab', 'linear'])).toEqual([
       'gitlab',

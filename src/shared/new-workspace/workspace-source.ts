@@ -35,6 +35,12 @@ export type JiraWorkspaceSource = WorkspaceSourceLinkedItem & {
   type: 'issue'
 }
 
+export type LificWorkspaceSource = WorkspaceSourceLinkedItem & {
+  provider: 'lific'
+  type: 'issue'
+  identifier: string
+}
+
 export type WorkspaceSourceItemLike = Omit<WorkspaceSourceLinkedItem, 'provider'> & {
   provider?: WorkspaceSourceProvider
 }
@@ -47,6 +53,7 @@ export type WorkspaceSourceSelectionKind =
   | 'branch'
   | 'linear'
   | 'jira'
+  | 'lific'
 
 export type WorkspaceSourceSelection = {
   kind: WorkspaceSourceSelectionKind
@@ -142,6 +149,21 @@ export function buildLinearWorkspaceSource(
   }
 }
 
+export function buildLificWorkspaceSource(issue: {
+  identifier: string
+  title: string
+  url: string
+}): LificWorkspaceSource {
+  return {
+    provider: 'lific',
+    type: 'issue',
+    number: 0,
+    title: issue.title,
+    url: issue.url,
+    identifier: issue.identifier
+  }
+}
+
 export function buildJiraWorkspaceSource(
   issue: Pick<JiraIssue, 'key' | 'title' | 'url'>
 ): JiraWorkspaceSource {
@@ -194,15 +216,17 @@ export function buildWorkspaceSourceSelection(args: {
   const kind: WorkspaceSourceSelectionKind =
     provider === 'linear'
       ? 'linear'
-      : provider === 'jira'
-        ? 'jira'
-        : provider === 'gitlab'
-          ? linkedWorkItem.type === 'mr'
-            ? 'gitlab-mr'
-            : 'gitlab-issue'
-          : linkedWorkItem.type === 'pr'
-            ? 'github-pr'
-            : 'github-issue'
+      : provider === 'lific'
+        ? 'lific'
+        : provider === 'jira'
+          ? 'jira'
+          : provider === 'gitlab'
+            ? linkedWorkItem.type === 'mr'
+              ? 'gitlab-mr'
+              : 'gitlab-issue'
+            : linkedWorkItem.type === 'pr'
+              ? 'github-pr'
+              : 'github-issue'
   return {
     kind,
     label:
@@ -220,5 +244,5 @@ export function shouldPreserveWorkspaceSourceOnRepoChange(
     return false
   }
   const provider = getWorkspaceSourceProvider(item)
-  return provider === 'linear' || provider === 'jira'
+  return provider === 'linear' || provider === 'jira' || provider === 'lific'
 }

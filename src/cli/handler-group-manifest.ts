@@ -198,6 +198,41 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     load: async () => (await import('./handlers/environment.js')).ENVIRONMENT_HANDLERS
   },
   {
+    name: 'lific',
+    keys: [
+      'lific host-exec',
+      'lific profiles',
+      'lific profile put',
+      'lific credential store',
+      'lific credential delete',
+      'lific status',
+      'lific bind-repo',
+      'lific bind-workspace',
+      'lific context',
+      'lific connect',
+      'lific reconnect',
+      'lific disconnect',
+      'lific agents-md',
+      'lific project list',
+      'lific issue list',
+      'lific issue show',
+      'lific issue update',
+      'lific comment list',
+      'lific comment add',
+      'lific plan list',
+      'lific plan show',
+      'lific plan-step set',
+      'lific page list',
+      'lific page show',
+      'lific search',
+      'lific board',
+      'lific relation add',
+      'lific relation remove',
+      'lific activity'
+    ],
+    load: async () => (await import('./handlers/lific.js')).LIFIC_HANDLERS
+  },
+  {
     name: 'linear',
     keys: [
       'linear save-issue',

@@ -1,4 +1,5 @@
 export type TaskProvider = 'github' | 'gitlab' | 'linear' | 'jira'
+export type WorkItemProvider = TaskProvider | 'lific'
 
 export const TASK_PROVIDERS: readonly TaskProvider[] = ['github', 'gitlab', 'linear', 'jira']
 
