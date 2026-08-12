@@ -58,10 +58,7 @@ describe('Electron package download resilience', () => {
       })
 
       expect(result.status, result.stderr).toBe(0)
-      const attempts = readFileSync(join(projectDir, 'electron-get.log'), 'utf8')
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line))
+      const attempts = readAttempts(projectDir)
       expect(attempts).toHaveLength(3)
       expect(new Set(attempts.map((attempt) => attempt.cacheRoot)).size).toBe(3)
       expect(new Set(attempts.map((attempt) => attempt.tempDirectory)).size).toBe(3)
@@ -72,7 +69,34 @@ describe('Electron package download resilience', () => {
       rmSync(projectDir, { recursive: true, force: true })
     }
   })
+
+  it('retries server errors exposed through a standard Fetch Response status', () => {
+    const projectDir = mkTempProject()
+
+    try {
+      writeFakeElectronPackage(projectDir)
+      writeFakeElectronGet(projectDir, { downloadFailures: 1, responseStatus: 503 })
+      writeFakeExtractor(projectDir)
+
+      const result = runInstallScript(projectDir, {
+        ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS: '0'
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(readAttempts(projectDir)).toHaveLength(2)
+      expect(result.stderr).toContain('Transient Electron download failure (HTTP 503)')
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true })
+    }
+  })
 })
+
+function readAttempts(projectDir) {
+  return readFileSync(join(projectDir, 'electron-get.log'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+}
 
 function mkTempProject() {
   const projectDir = mkdtempSync(join(tmpdir(), 'orca-electron-resilience-'))
@@ -108,7 +132,10 @@ function writeFakeElectronPackage(projectDir) {
   writeFileSync(join(electronDir, 'checksums.json'), '{}')
 }
 
-function writeFakeElectronGet(projectDir, { downloadFailures }) {
+function writeFakeElectronGet(
+  projectDir,
+  { downloadFailures, responseStatus = null }
+) {
   const getDir = join(projectDir, 'node_modules', 'electron', 'node_modules', '@electron', 'get')
   mkdirSync(getDir, { recursive: true })
   writeFileSync(
@@ -124,6 +151,11 @@ exports.downloadArtifact = async function downloadArtifact(details) {
     tempDirectory: details.tempDirectory
   }) + '\\n')
   if (attempt <= ${JSON.stringify(downloadFailures)}) {
+    if (${JSON.stringify(responseStatus)} !== null) {
+      throw Object.assign(new Error('download failed'), {
+        response: { status: ${JSON.stringify(responseStatus)} }
+      })
+    }
     const cause = Object.assign(new Error('socket closed'), { code: 'UND_ERR_SOCKET' })
     throw Object.assign(new TypeError('fetch failed'), { cause })
   }
