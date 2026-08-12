@@ -98,9 +98,6 @@ export async function executeLocalMulticaProcess(
       return
     }
 
-    const output = createBoundedOutput(maxOutputBytes, () => {
-      requestTermination(child)
-    })
     let settled = false
     let timedOut = false
     let timeout: NodeJS.Timeout | undefined
@@ -121,6 +118,7 @@ export async function executeLocalMulticaProcess(
         forceKill.unref()
       }
     }
+    const output = createBoundedOutput(maxOutputBytes, terminate)
     const rejectOnce = (error: unknown): void => {
       if (settled) {
         return
@@ -218,7 +216,7 @@ function requestTermination(
   child: ChildProcessWithoutNullStreams,
   signal: NodeJS.Signals = 'SIGTERM'
 ): void {
-  if (child.exitCode !== null || child.signalCode !== null || child.killed) {
+  if (child.exitCode !== null || child.signalCode !== null) {
     return
   }
   try {
