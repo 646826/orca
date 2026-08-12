@@ -15,7 +15,6 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { platform as osPlatform, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const electronPackageDir = resolve(projectDir, 'node_modules/electron')
@@ -34,6 +33,7 @@ const transientDownloadErrorCodes = new Set([
   'ENETUNREACH',
   'ENOTFOUND',
   'EPIPE',
+  'ERR_HTTP2_STREAM_ERROR',
   'ETIMEDOUT',
   'UND_ERR_CONNECT_TIMEOUT',
   'UND_ERR_HEADERS_TIMEOUT',
@@ -52,7 +52,7 @@ export const DEFAULT_ELECTRON_DOWNLOAD_RETRY_DELAYS_MS = Object.freeze([
 ])
 
 const isDirectExecution =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+  process.argv[1] !== undefined && resolve(process.argv[1]) === import.meta.filename
 
 if (isDirectExecution) {
   try {

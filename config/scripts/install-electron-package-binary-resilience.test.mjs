@@ -70,6 +70,31 @@ describe('Electron package download resilience', () => {
     }
   })
 
+  it('retries refused HTTP/2 streams reported by Node', () => {
+    const projectDir = mkTempProject()
+
+    try {
+      writeFakeElectronPackage(projectDir)
+      writeFakeElectronGet(projectDir, {
+        downloadFailures: 1,
+        errorCode: 'ERR_HTTP2_STREAM_ERROR'
+      })
+      writeFakeExtractor(projectDir)
+
+      const result = runInstallScript(projectDir, {
+        ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS: '0'
+      })
+
+      expect(result.status, result.stderr).toBe(0)
+      expect(readAttempts(projectDir)).toHaveLength(2)
+      expect(result.stderr).toContain(
+        'Transient Electron download failure (ERR_HTTP2_STREAM_ERROR)'
+      )
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true })
+    }
+  })
+
   it('retries server errors exposed through a standard Fetch Response status', () => {
     const projectDir = mkTempProject()
 
@@ -135,7 +160,7 @@ function writeFakeElectronPackage(projectDir) {
 
 function writeFakeElectronGet(
   projectDir,
-  { downloadFailures, responseStatus = null }
+  { downloadFailures, responseStatus = null, errorCode = null }
 ) {
   const getDir = join(projectDir, 'node_modules', 'electron', 'node_modules', '@electron', 'get')
   mkdirSync(getDir, { recursive: true })
@@ -152,6 +177,12 @@ exports.downloadArtifact = async function downloadArtifact(details) {
     tempDirectory: details.tempDirectory
   }) + '\\n')
   if (attempt <= ${JSON.stringify(downloadFailures)}) {
+    if (${JSON.stringify(errorCode)} !== null) {
+      const cause = Object.assign(new Error('stream refused'), {
+        code: ${JSON.stringify(errorCode)}
+      })
+      throw Object.assign(new TypeError('fetch failed'), { cause })
+    }
     if (${JSON.stringify(responseStatus)} !== null) {
       throw Object.assign(new Error('download failed'), {
         response: { status: ${JSON.stringify(responseStatus)} }
