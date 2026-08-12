@@ -28,6 +28,8 @@ const ACTION_ARGS: Record<MulticaLifecycleAction, readonly string[]> = {
   apply: ['up', '-d', '--remove-orphans']
 }
 
+const NUL = String.fromCharCode(0)
+
 export function buildMulticaComposeInvocation(
   action: MulticaLifecycleAction,
   lifecycle: MulticaInstanceLifecycle
@@ -71,7 +73,7 @@ function validateLifecycle(lifecycle: ManagedLifecycle): void {
     if (value === undefined) {
       continue
     }
-    if (!value.trim() || /[\r\n\0]/.test(value)) {
+    if (!value.trim() || value.includes(NUL) || /[\r\n]/.test(value)) {
       throw new Error('Invalid Multica Docker Compose lifecycle value')
     }
   }
