@@ -42,6 +42,7 @@ const transientDownloadErrorCodes = new Set([
 const MAX_RETRY_CONFIG_LENGTH = 1024
 const MAX_RETRY_DELAY_COUNT = 10
 const MAX_RETRY_DELAY_MS = 5 * 60 * 1000
+const MAX_FALLBACK_MIRROR_LENGTH = 2048
 
 export const DEFAULT_ELECTRON_DOWNLOAD_RETRY_DELAYS_MS = Object.freeze([
   1_000,
@@ -178,13 +179,18 @@ async function downloadElectronArtifactWithRetry(baseDownloadOptions, tempRoot) 
   const retryDelays = parseElectronDownloadRetryDelays(
     process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
   )
+  const fallbackMirrorOptions = parseElectronFallbackMirror(
+    process.env.ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR
+  )
 
   for (let attempt = 0; ; attempt += 1) {
     const attemptDirectory = mkdtempSync(join(tempRoot, `attempt-${attempt + 1}-`))
+    const mirrorOptions = getAttemptMirrorOptions(attempt, fallbackMirrorOptions)
     const downloadOptions = {
       ...baseDownloadOptions,
       cacheRoot: join(attemptDirectory, 'cache'),
-      tempDirectory: attemptDirectory
+      tempDirectory: attemptDirectory,
+      ...(mirrorOptions ? { mirrorOptions } : {})
     }
 
     try {
@@ -233,6 +239,38 @@ export function parseElectronDownloadRetryDelays(configured) {
     throw new Error('ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS must contain non-negative integers')
   }
   return delays
+}
+
+function parseElectronFallbackMirror(configured) {
+  if (configured === undefined) {
+    return undefined
+  }
+  if (configured.length === 0 || configured.length > MAX_FALLBACK_MIRROR_LENGTH) {
+    throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+  }
+
+  let mirror
+  try {
+    mirror = new URL(configured)
+  } catch {
+    throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+  }
+  if (
+    mirror.protocol !== 'https:' ||
+    !mirror.hostname ||
+    mirror.username ||
+    mirror.password ||
+    mirror.search ||
+    mirror.hash ||
+    !mirror.pathname.endsWith('/')
+  ) {
+    throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+  }
+  return { mirror: mirror.toString(), customDir: '{{ version }}' }
+}
+
+function getAttemptMirrorOptions(attempt, fallbackMirrorOptions) {
+  return fallbackMirrorOptions && attempt % 2 === 1 ? fallbackMirrorOptions : undefined
 }
 
 function isTransientDownloadError(error) {

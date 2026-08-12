@@ -85,4 +85,7 @@ runs:
     - name: Install Electron package binary for Node-native tests
       if: inputs.native-runtime == 'node'
       shell: bash
+      env:
+        # Mirror archives remain pinned by Electron's bundled checksums.
+        ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR: https://repo.huaweicloud.com/electron/
       run: node config/scripts/install-electron-package-binary.mjs
