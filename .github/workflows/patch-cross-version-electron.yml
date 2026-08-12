@@ -27,29 +27,26 @@ jobs:
 
           path = Path('.github/workflows/pr.yml')
           text = path.read_text(encoding='utf-8')
-          old = """      - uses: ./.github/actions/install-node-dependencies
-                with:
-                  native-runtime: node
-
-              # A path filter that matches nothing exits 1 (\"No test files found\"), so this
-              # lane cannot report success while running zero tests.
-              - name: Old/new client and server terminal journey
-          """.replace('              ', '')
-          new = """      - uses: ./.github/actions/install-node-dependencies
-                with:
-                  native-runtime: node
+          job_start = text.index('  cross-version-wire:\n')
+          job_end = text.index('\n  managed_hook_node18:', job_start)
+          job = text[job_start:job_end]
+          install_step = """
 
               - name: Install Electron package binary for cross-version tests
                 run: node config/scripts/install-electron-package-binary.mjs
-
-              # A path filter that matches nothing exits 1 (\"No test files found\"), so this
-              # lane cannot report success while running zero tests.
-              - name: Old/new client and server terminal journey
           """.replace('              ', '')
+          if 'Install Electron package binary for cross-version tests' in job:
+              raise SystemExit('cross-version Electron bootstrap is already present')
 
-          if old not in text:
-              raise SystemExit('expected cross-version workflow context not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          dependency_step = """      - uses: ./.github/actions/install-node-dependencies
+                with:
+                  native-runtime: node
+          """.replace('              ', '')
+          if dependency_step not in job:
+              raise SystemExit('cross-version dependency step not found')
+
+          patched_job = job.replace(dependency_step, dependency_step + install_step, 1)
+          path.write_text(text[:job_start] + patched_job + text[job_end:], encoding='utf-8')
           PY
 
       - name: Commit workflow fix
