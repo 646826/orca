@@ -90,6 +90,24 @@ describe('executeLocalMulticaProcess', () => {
     expect(Date.now() - startedAt).toBeLessThan(5_000)
   })
 
+  it.skipIf(process.platform === 'win32')(
+    'force-kills a command that ignores graceful termination',
+    async () => {
+      const startedAt = Date.now()
+      const result = await executeLocalMulticaProcess(
+        nodeInvocation(
+          "process.on('SIGTERM', () => {}); process.stdout.write('ready'); setInterval(() => {}, 10_000)"
+        ),
+        { timeoutMs: 100 }
+      )
+
+      expect(result.timedOut).toBe(true)
+      expect(result.signal).toBe('SIGKILL')
+      expect(result.stdout).toBe('ready')
+      expect(Date.now() - startedAt).toBeLessThan(5_000)
+    }
+  )
+
   it('enforces one combined byte limit across stdout and stderr', async () => {
     const result = await executeLocalMulticaProcess(
       nodeInvocation(
@@ -128,7 +146,8 @@ describe('executeLocalMulticaProcess', () => {
   it.each([
     ['timeout', { timeoutMs: 0 }],
     ['output limit', { maxOutputBytes: 0 }],
-    ['environment key', { inheritedEnvironmentKeys: ['BAD=KEY'] }]
+    ['environment key', { inheritedEnvironmentKeys: ['BAD=KEY'] }],
+    ['protected environment key', { inheritedEnvironmentKeys: ['MULTICA_TOKEN'] }]
   ])('rejects an invalid %s option', async (_name, options) => {
     await expect(
       executeLocalMulticaProcess(nodeInvocation("process.stdout.write('ok')"), options)
