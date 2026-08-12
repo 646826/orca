@@ -1,14 +1,20 @@
 import type { MulticaConnectionProfile } from '../../shared/multica/multica-types'
-import { redactMulticaSecrets } from '../../shared/multica/multica-redaction'
 import {
   buildMulticaApiRequest,
   type MulticaApiMethod,
   type MulticaApiRequestInput
 } from './multica-api-request'
+import {
+  createMulticaError,
+  formatMulticaDiagnostic,
+  parseMulticaJsonResponse
+} from './multica-rest-response'
 
-export const MULTICA_REST_RESPONSE_MAX_BYTES = 10 * 1024 * 1024
+export {
+  MULTICA_REST_RESPONSE_MAX_BYTES,
+  MulticaHttpError
+} from './multica-rest-response'
 
-const HTTP_ERROR_DETAIL_MAX_CHARS = 2048
 const TRANSPORT_ERROR_DETAIL_MAX_CHARS = 1024
 const CLIENT_VERSION_MAX_CHARS = 128
 const MAX_REDIRECTS = 3
@@ -50,32 +56,6 @@ export type MulticaRestRequestOptions = {
   requestId?: string
   idempotencyKey?: string
   signal?: AbortSignal
-}
-
-export class MulticaHttpError extends Error {
-  readonly status: number
-  readonly statusText: string
-  readonly requestId: string | undefined
-  readonly bodySnippet: string
-
-  constructor(
-    status: number,
-    statusText: string,
-    bodySnippet: string,
-    requestId: string | undefined
-  ) {
-    const summary = statusText ? `HTTP ${status} ${statusText}` : `HTTP ${status}`
-    super(
-      bodySnippet
-        ? `Multica API request failed with ${summary}: ${bodySnippet}`
-        : `Multica API request failed with ${summary}`
-    )
-    this.name = 'MulticaHttpError'
-    this.status = status
-    this.statusText = statusText
-    this.requestId = requestId
-    this.bodySnippet = bodySnippet
-  }
 }
 
 export class MulticaRestClient {
@@ -163,30 +143,7 @@ export class MulticaRestClient {
       },
       options.signal
     )
-
-    if (response.status === 204) {
-      return undefined
-    }
-
-    const text = await readBoundedResponseText(response)
-    if (!response.ok) {
-      const requestId = boundedHeader(response.headers.get('x-request-id'))
-      throw new MulticaHttpError(
-        response.status,
-        response.statusText,
-        formatDiagnostic(text, HTTP_ERROR_DETAIL_MAX_CHARS),
-        requestId
-      )
-    }
-    if (!text.trim()) {
-      return undefined
-    }
-
-    try {
-      return JSON.parse(text) as T
-    } catch {
-      throw namedError('MulticaInvalidResponseError', 'Multica API returned invalid JSON')
-    }
+    return await parseMulticaJsonResponse<T>(response)
   }
 
   private async fetchWithPolicy(
@@ -216,13 +173,10 @@ export class MulticaRestClient {
           continue
         }
         if (attemptSignal.didTimeout()) {
-          throw namedError(
+          throw createMulticaError(
             'MulticaTimeoutError',
             `Multica API request timed out after ${this.timeoutMs}ms`
           )
-        }
-        if (error instanceof MulticaHttpError) {
-          throw error
         }
         throw mapTransportError(error)
       } finally {
@@ -252,15 +206,21 @@ export class MulticaRestClient {
         return response
       }
       if (redirectCount >= MAX_REDIRECTS) {
-        throw namedError('MulticaRedirectError', 'Multica API redirect limit exceeded')
+        throw createMulticaError(
+          'MulticaRedirectError',
+          'Multica API redirect limit exceeded'
+        )
       }
 
-      const nextUrl = new URL(location, currentUrl)
+      const nextUrl = resolveRedirectUrl(location, currentUrl)
       if (nextUrl.origin !== pinnedOrigin) {
-        throw namedError('MulticaRedirectError', 'Multica API redirect changed origin')
+        throw createMulticaError(
+          'MulticaRedirectError',
+          'Multica API redirect changed origin'
+        )
       }
       if ((init.method ?? 'GET') !== 'GET' && response.status !== 307 && response.status !== 308) {
-        throw namedError(
+        throw createMulticaError(
           'MulticaRedirectError',
           'Multica API mutation redirect is not supported'
         )
@@ -289,7 +249,7 @@ function createAttemptSignal(timeoutMs: number, externalSignal: AbortSignal | un
 
   const timer = setTimeout(() => {
     timedOut = true
-    controller.abort(namedError('TimeoutError', `Timed out after ${timeoutMs}ms`))
+    controller.abort(createMulticaError('TimeoutError', `Timed out after ${timeoutMs}ms`))
   }, timeoutMs)
 
   return {
@@ -302,45 +262,15 @@ function createAttemptSignal(timeoutMs: number, externalSignal: AbortSignal | un
   }
 }
 
-async function readBoundedResponseText(response: Response): Promise<string> {
-  const contentLength = parseContentLength(response.headers.get('content-length'))
-  if (contentLength !== undefined && contentLength > MULTICA_REST_RESPONSE_MAX_BYTES) {
-    throw responseTooLargeError()
-  }
-  if (!response.body) {
-    return ''
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let bytesRead = 0
-  let text = ''
-
+function resolveRedirectUrl(location: string, currentUrl: string): URL {
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) {
-        break
-      }
-      bytesRead += value.byteLength
-      if (bytesRead > MULTICA_REST_RESPONSE_MAX_BYTES) {
-        await reader.cancel().catch(() => undefined)
-        throw responseTooLargeError()
-      }
-      text += decoder.decode(value, { stream: true })
-    }
-    return text + decoder.decode()
-  } finally {
-    reader.releaseLock()
+    return new URL(location, currentUrl)
+  } catch {
+    throw createMulticaError(
+      'MulticaRedirectError',
+      'Multica API redirect URL is invalid'
+    )
   }
-}
-
-function parseContentLength(value: string | null): number | undefined {
-  if (value === null) {
-    return undefined
-  }
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 function assertResponseOrigin(response: Response, pinnedOrigin: string): void {
@@ -351,10 +281,16 @@ function assertResponseOrigin(response: Response, pinnedOrigin: string): void {
   try {
     responseOrigin = new URL(response.url).origin
   } catch {
-    throw namedError('MulticaRedirectError', 'Multica API response URL is invalid')
+    throw createMulticaError(
+      'MulticaRedirectError',
+      'Multica API response URL is invalid'
+    )
   }
   if (responseOrigin !== pinnedOrigin) {
-    throw namedError('MulticaRedirectError', 'Multica API redirect changed origin')
+    throw createMulticaError(
+      'MulticaRedirectError',
+      'Multica API redirect changed origin'
+    )
   }
 }
 
@@ -394,69 +330,33 @@ function requireRetryDelays(values: readonly number[]): readonly number[] {
 }
 
 function isTransientTransportError(error: unknown): boolean {
-  for (const candidate of errorChain(error)) {
-    if (TRANSIENT_ERROR_CODES.has(candidate.code)) {
+  let candidate: unknown = error
+  for (let depth = 0; candidate && depth < 5; depth += 1) {
+    if (typeof candidate !== 'object') {
+      return false
+    }
+    const record = candidate as { code?: unknown; cause?: unknown }
+    if (typeof record.code === 'string' && TRANSIENT_ERROR_CODES.has(record.code)) {
       return true
     }
+    candidate = record.cause
   }
   return false
 }
 
-function errorChain(error: unknown): Array<{ code: string }> {
-  const chain: Array<{ code: string }> = []
-  let candidate: unknown = error
-
-  while (candidate && chain.length < 5) {
-    if (typeof candidate === 'object') {
-      const record = candidate as { code?: unknown; cause?: unknown }
-      if (typeof record.code === 'string') {
-        chain.push({ code: record.code })
-      }
-      candidate = record.cause
-    } else {
-      break
-    }
-  }
-  return chain
-}
-
 function mapTransportError(error: unknown): Error {
-  const detail = formatDiagnostic(
+  const detail = formatMulticaDiagnostic(
     error instanceof Error ? error.message : String(error),
     TRANSPORT_ERROR_DETAIL_MAX_CHARS
   )
-  return namedError(
+  return createMulticaError(
     'MulticaTransportError',
     detail ? `Multica API request failed: ${detail}` : 'Multica API request failed'
   )
 }
 
-function responseTooLargeError(): Error {
-  return namedError(
-    'MulticaResponseTooLargeError',
-    `Multica API response exceeds ${MULTICA_REST_RESPONSE_MAX_BYTES} bytes`
-  )
-}
-
 function abortedError(): Error {
-  return namedError('MulticaAbortError', 'Multica API request was aborted')
-}
-
-function namedError(name: string, message: string): Error {
-  const error = new Error(message)
-  error.name = name
-  return error
-}
-
-function boundedHeader(value: string | null): string | undefined {
-  if (!value) {
-    return undefined
-  }
-  return redactMulticaSecrets(value).replace(/\s+/g, ' ').trim().slice(0, 256) || undefined
-}
-
-function formatDiagnostic(value: string, maxChars: number): string {
-  return redactMulticaSecrets(value).replace(/\s+/g, ' ').trim().slice(0, maxChars)
+  return createMulticaError('MulticaAbortError', 'Multica API request was aborted')
 }
 
 async function defaultSleep(delayMs: number): Promise<void> {
