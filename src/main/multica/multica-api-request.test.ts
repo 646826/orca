@@ -177,7 +177,10 @@ describe('buildMulticaApiRequest', () => {
       message = error instanceof Error ? error.message : String(error)
     }
     expect(message).toBeTruthy()
-    expect(message).not.toContain(value.trim())
+    const secretFragment = value.trim()
+    if (secretFragment) {
+      expect(message).not.toContain(secretFragment)
+    }
   })
 
   it('rejects bodies on GET and DELETE requests', () => {
