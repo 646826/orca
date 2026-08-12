@@ -240,7 +240,7 @@ function isTransientDownloadError(error) {
     if (transientDownloadErrorCodes.has(candidate?.code)) {
       return true
     }
-    const statusCode = candidate?.statusCode ?? candidate?.response?.statusCode
+    const statusCode = getDownloadStatusCode(candidate)
     if (
       statusCode === 408 ||
       statusCode === 425 ||
@@ -263,9 +263,15 @@ function getErrorChain(error) {
   return errors
 }
 
+function getDownloadStatusCode(candidate) {
+  return (
+    candidate?.statusCode ?? candidate?.response?.statusCode ?? candidate?.response?.status
+  )
+}
+
 function formatDownloadError(error) {
   for (const candidate of getErrorChain(error)) {
-    const statusCode = candidate?.statusCode ?? candidate?.response?.statusCode
+    const statusCode = getDownloadStatusCode(candidate)
     if (statusCode) {
       return `HTTP ${statusCode}`
     }
