@@ -235,22 +235,19 @@ function requireQueryKey(key: string): void {
 }
 
 function formatQueryScalar(value: MulticaApiQueryScalar): string {
-  switch (typeof value) {
-    case 'string':
-      if (value.length > QUERY_VALUE_MAX_LENGTH || containsControlCharacter(value)) {
-        throw new Error('Invalid Multica API query value')
-      }
-      return value
-    case 'number':
-      if (!Number.isFinite(value)) {
-        throw new Error('Invalid Multica API query value')
-      }
-      return String(value)
-    case 'boolean':
-      return String(value)
-    default:
+  if (typeof value === 'string') {
+    if (value.length > QUERY_VALUE_MAX_LENGTH || containsControlCharacter(value)) {
       throw new Error('Invalid Multica API query value')
+    }
+    return value
   }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new Error('Invalid Multica API query value')
+    }
+    return String(value)
+  }
+  return String(value)
 }
 
 function requireHeaderToken(value: string, label: string, maxLength: number): string {
