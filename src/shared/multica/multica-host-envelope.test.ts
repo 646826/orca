@@ -7,6 +7,8 @@ import {
   type MulticaProcessInvocation
 } from './multica-host-envelope'
 
+const NUL = String.fromCharCode(0)
+
 const invocation: MulticaProcessInvocation = {
   command: 'multica',
   args: ['issue', 'list', '--output', 'json'],
@@ -32,9 +34,7 @@ describe('Multica host execution envelope', () => {
     ).toThrow('Multica process invocation requires shell=false')
 
     expect(() =>
-      decodeMulticaHostEnvelope(
-        encodeRawEnvelope({ ...invocation, shell: true })
-      )
+      decodeMulticaHostEnvelope(encodeRawEnvelope({ ...invocation, shell: true }))
     ).toThrow('Multica process invocation requires shell=false')
   })
 
@@ -57,11 +57,14 @@ describe('Multica host execution envelope', () => {
   })
 
   it.each([
-    ['command', { ...invocation, command: 'multica\0sh' }],
-    ['argument', { ...invocation, args: ['issue', 'list\0--all'] }],
-    ['cwd', { ...invocation, cwd: '/workspace\0elsewhere' }],
-    ['stdin', { ...invocation, stdin: 'secret\0suffix' }],
-    ['environment value', { ...invocation, env: { MULTICA_TOKEN: 'mul_secret\0suffix' } }]
+    ['command', { ...invocation, command: `multica${NUL}sh` }],
+    ['argument', { ...invocation, args: ['issue', `list${NUL}--all`] }],
+    ['cwd', { ...invocation, cwd: `/workspace${NUL}elsewhere` }],
+    ['stdin', { ...invocation, stdin: `secret${NUL}suffix` }],
+    [
+      'environment value',
+      { ...invocation, env: { MULTICA_TOKEN: `mul_secret${NUL}suffix` } }
+    ]
   ])('rejects a NUL byte in %s', (_name, unsafeInvocation) => {
     expect(() => encodeMulticaHostEnvelope(unsafeInvocation as MulticaProcessInvocation)).toThrow(
       'Multica process invocation contains a NUL byte'
