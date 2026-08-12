@@ -219,6 +219,20 @@ describe('MulticaRestClient', () => {
     expect(delays).toEqual([5, 10])
   })
 
+  it('retries GET when the response body stream fails transiently', async () => {
+    const fetch = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(streamFailureResponse('ECONNRESET'))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+    const client = createClient(fetch, {
+      retryDelaysMs: [0],
+      sleep: async () => undefined
+    })
+
+    await expect(client.getJson('/api/config')).resolves.toEqual({ ok: true })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   it('does not retry mutation transport failures', async () => {
     const fetch = vi.fn<FetchLike>().mockRejectedValue(transientError('ECONNRESET'))
     const client = createClient(fetch, { retryDelaysMs: [0, 0] })
@@ -272,6 +286,15 @@ function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
       ...Object.fromEntries(new Headers(init.headers).entries())
     }
   })
+}
+
+function streamFailureResponse(code: string): Response {
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.error(transientError(code))
+    }
+  })
+  return new Response(body, { headers: { 'Content-Type': 'application/json' } })
 }
 
 function transientError(code: string): Error {
