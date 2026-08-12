@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { platform as osPlatform, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const electronPackageDir = resolve(projectDir, 'node_modules/electron')
@@ -38,16 +39,32 @@ const transientDownloadErrorCodes = new Set([
   'UND_ERR_HEADERS_TIMEOUT',
   'UND_ERR_SOCKET'
 ])
+const MAX_RETRY_CONFIG_LENGTH = 1024
+const MAX_RETRY_DELAY_COUNT = 10
+const MAX_RETRY_DELAY_MS = 5 * 60 * 1000
 
-try {
-  // Why: Electron's own install.js can exit 0 while an async extract promise is
-  // still unsettled, leaving a partial dist/. Top-level await makes that fail.
-  await main()
-} catch (error) {
-  console.error('[electron-package] Failed to install Electron package binary.')
-  console.error(error)
-  logElectronInstallDiagnostics()
-  process.exit(1)
+export const DEFAULT_ELECTRON_DOWNLOAD_RETRY_DELAYS_MS = Object.freeze([
+  1_000,
+  3_000,
+  7_000,
+  15_000,
+  30_000
+])
+
+const isDirectExecution =
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (isDirectExecution) {
+  try {
+    // Why: Electron's own install.js can exit 0 while an async extract promise is
+    // still unsettled, leaving a partial dist/. Top-level await makes that fail.
+    await main()
+  } catch (error) {
+    console.error('[electron-package] Failed to install Electron package binary.')
+    console.error(error)
+    logElectronInstallDiagnostics()
+    process.exit(1)
+  }
 }
 
 async function main() {
@@ -120,22 +137,19 @@ function repairElectronPathFile() {
 
 async function installElectronPackageBinary() {
   const electronDistDir = resolve(electronPackageDir, 'dist')
-  const tempDir = mkdtempSync(resolve(tmpdir(), 'orca-electron-'))
-  const cacheRoot = join(tempDir, 'cache')
-  const extractDir = join(tempDir, 'extract')
+  const tempRoot = mkdtempSync(resolve(tmpdir(), 'orca-electron-'))
+  const extractDir = join(tempRoot, 'extract')
 
   try {
-    const downloadOptions = {
+    const baseDownloadOptions = {
       version: electronVersion,
       artifactName: 'electron',
       platform: targetPlatform,
       arch: targetArch,
-      cacheRoot,
       force: true,
-      tempDirectory: tempDir,
       ...(shouldUseRemoteChecksums() ? {} : { checksums: electronRequire('./checksums.json') })
     }
-    const zipPath = await downloadElectronArtifactWithRetry(downloadOptions)
+    const zipPath = await downloadElectronArtifactWithRetry(baseDownloadOptions, tempRoot)
 
     // Why: CI has observed partial extracts directly under node_modules/electron
     // that leave only dist/locales. Verify in temp before replacing package dist.
@@ -156,14 +170,23 @@ async function installElectronPackageBinary() {
       renameSync(srcTypeDefPath, resolve(electronPackageDir, 'electron.d.ts'))
     }
   } finally {
-    rmSync(tempDir, { recursive: true, force: true })
+    rmSync(tempRoot, { recursive: true, force: true })
   }
 }
 
-async function downloadElectronArtifactWithRetry(downloadOptions) {
-  const retryDelays = getDownloadRetryDelays()
+async function downloadElectronArtifactWithRetry(baseDownloadOptions, tempRoot) {
+  const retryDelays = parseElectronDownloadRetryDelays(
+    process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
+  )
 
   for (let attempt = 0; ; attempt += 1) {
+    const attemptDirectory = mkdtempSync(join(tempRoot, `attempt-${attempt + 1}-`))
+    const downloadOptions = {
+      ...baseDownloadOptions,
+      cacheRoot: join(attemptDirectory, 'cache'),
+      tempDirectory: attemptDirectory
+    }
+
     try {
       return await downloadArtifact(downloadOptions)
     } catch (error) {
@@ -176,20 +199,37 @@ async function downloadElectronArtifactWithRetry(downloadOptions) {
         `[electron-package] Transient Electron download failure (${formatDownloadError(error)}); ` +
           `retrying in ${retryDelay}ms (${attempt + 2}/${retryDelays.length + 1}).`
       )
-      rmSync(downloadOptions.cacheRoot, { recursive: true, force: true })
+      rmSync(attemptDirectory, { recursive: true, force: true })
       await new Promise((resolveDelay) => setTimeout(resolveDelay, retryDelay))
     }
   }
 }
 
-function getDownloadRetryDelays() {
-  const configured = process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
-  if (!configured) {
-    return [1_000, 3_000]
+export function parseElectronDownloadRetryDelays(configured) {
+  if (configured === undefined) {
+    return [...DEFAULT_ELECTRON_DOWNLOAD_RETRY_DELAYS_MS]
+  }
+  if (configured.length === 0) {
+    throw new Error('ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS must not be empty')
+  }
+  if (configured.length > MAX_RETRY_CONFIG_LENGTH) {
+    throw new Error('ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS is too long')
   }
 
-  const delays = configured.split(',').map(Number)
-  if (delays.some((delay) => !Number.isSafeInteger(delay) || delay < 0)) {
+  const values = configured.split(',')
+  if (values.length > MAX_RETRY_DELAY_COUNT) {
+    throw new Error(
+      `ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS may contain at most ${MAX_RETRY_DELAY_COUNT} delays`
+    )
+  }
+
+  const delays = values.map(Number)
+  if (
+    delays.some(
+      (delay) =>
+        !Number.isSafeInteger(delay) || delay < 0 || delay > MAX_RETRY_DELAY_MS
+    )
+  ) {
     throw new Error('ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS must contain non-negative integers')
   }
   return delays
