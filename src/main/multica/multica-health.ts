@@ -98,7 +98,7 @@ async function probeRestHealth(
   try {
     healthPayload = await read(options, profile, '/health', { kind: 'version' })
   } catch (error) {
-    return unreachable(error)
+    return authenticationOrUnreachable(error)
   }
 
   let configPayload: unknown
@@ -205,7 +205,9 @@ async function probeCliHealth(
   try {
     versionPayload = await read(options, profile, '/health', { kind: 'version' })
   } catch (error) {
-    return isEnoent(error) ? { kind: 'not-installed' } : unreachable(error)
+    return isEnoent(error)
+      ? { kind: 'not-installed' }
+      : authenticationOrUnreachable(error)
   }
 
   let authPayload: unknown
