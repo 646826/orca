@@ -109,26 +109,88 @@ describe('buildMulticaCliInvocation', () => {
   })
 
   it.each<[MulticaCliReadOperation, string[]]>([
-    [{ kind: 'version' }, ['--server-url', 'https://api.multica.example', '--profile', 'orca-production', 'version']],
+    [
+      { kind: 'version' },
+      [
+        '--server-url',
+        'https://api.multica.example',
+        '--profile',
+        'orca-production',
+        'version',
+        '--output',
+        'json'
+      ]
+    ],
     [
       { kind: 'auth-status' },
-      ['--server-url', 'https://api.multica.example', '--profile', 'orca-production', 'auth', 'status', '--output', 'json']
+      [
+        '--server-url',
+        'https://api.multica.example',
+        '--profile',
+        'orca-production',
+        'auth',
+        'status',
+        '--output',
+        'json'
+      ]
     ],
     [
       { kind: 'workspace-list' },
-      ['--server-url', 'https://api.multica.example', '--profile', 'orca-production', 'workspace', 'list', '--output', 'json']
+      [
+        '--server-url',
+        'https://api.multica.example',
+        '--profile',
+        'orca-production',
+        'workspace',
+        'list',
+        '--output',
+        'json'
+      ]
     ],
     [
       { kind: 'agent-list' },
-      ['--server-url', 'https://api.multica.example', '--workspace-id', 'workspace-1', '--profile', 'orca-production', 'agent', 'list', '--output', 'json']
+      [
+        '--server-url',
+        'https://api.multica.example',
+        '--workspace-id',
+        'workspace-1',
+        '--profile',
+        'orca-production',
+        'agent',
+        'list',
+        '--output',
+        'json'
+      ]
     ],
     [
       { kind: 'skill-list' },
-      ['--server-url', 'https://api.multica.example', '--workspace-id', 'workspace-1', '--profile', 'orca-production', 'skill', 'list', '--output', 'json']
+      [
+        '--server-url',
+        'https://api.multica.example',
+        '--workspace-id',
+        'workspace-1',
+        '--profile',
+        'orca-production',
+        'skill',
+        'list',
+        '--output',
+        'json'
+      ]
     ],
     [
       { kind: 'runtime-list' },
-      ['--server-url', 'https://api.multica.example', '--workspace-id', 'workspace-1', '--profile', 'orca-production', 'runtime', 'list', '--output', 'json']
+      [
+        '--server-url',
+        'https://api.multica.example',
+        '--workspace-id',
+        'workspace-1',
+        '--profile',
+        'orca-production',
+        'runtime',
+        'list',
+        '--output',
+        'json'
+      ]
     ]
   ])('builds the %# read command without arbitrary arguments', (operation, expectedArgs) => {
     expect(buildMulticaCliInvocation(cliProfile, operation)).toEqual({
@@ -203,8 +265,16 @@ describe('buildMulticaCliInvocation', () => {
   })
 
   it.each([
-    ['empty executable', { ...cliProfile, dataPlane: { ...cliProfile.dataPlane, executable: ' ' } }, { kind: 'version' }],
-    ['control character in identifier', cliProfile, { kind: 'issue-get', issueId: 'MUL-1\nnext' }],
+    [
+      'empty executable',
+      { ...cliProfile, dataPlane: { ...cliProfile.dataPlane, executable: ' ' } },
+      { kind: 'version' }
+    ],
+    [
+      'control character in identifier',
+      cliProfile,
+      { kind: 'issue-get', issueId: 'MUL-1\nnext' }
+    ],
     ['empty search query', cliProfile, { kind: 'issue-search', query: ' ' }],
     ['invalid limit', cliProfile, { kind: 'issue-list', limit: 0 }],
     ['invalid offset', cliProfile, { kind: 'issue-list', offset: -1 }],
