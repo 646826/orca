@@ -5,7 +5,9 @@ export type MulticaCliReadOperation =
   | { kind: 'version' }
   | { kind: 'auth-status' }
   | { kind: 'workspace-list' }
+  | { kind: 'workspace-get'; workspaceId: string }
   | { kind: 'project-list' }
+  | { kind: 'project-get'; projectId: string }
   | {
       kind: 'issue-list'
       status?: string
@@ -36,6 +38,7 @@ type ResolvedMulticaCli = {
 
 const WORKSPACE_SCOPED_OPERATIONS = new Set<MulticaCliReadOperation['kind']>([
   'project-list',
+  'project-get',
   'issue-list',
   'issue-get',
   'issue-search',
@@ -117,8 +120,20 @@ function buildOperationArgs(operation: MulticaCliReadOperation): string[] {
       return jsonArgs('auth', 'status')
     case 'workspace-list':
       return jsonArgs('workspace', 'list')
+    case 'workspace-get':
+      return jsonArgs(
+        'workspace',
+        'get',
+        requireOpaqueIdentifier(operation.workspaceId, 'workspace ID')
+      )
     case 'project-list':
       return jsonArgs('project', 'list')
+    case 'project-get':
+      return jsonArgs(
+        'project',
+        'get',
+        requireOpaqueIdentifier(operation.projectId, 'project ID')
+      )
     case 'agent-list':
       return jsonArgs('agent', 'list')
     case 'skill-list':
