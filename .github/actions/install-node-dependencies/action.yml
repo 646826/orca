@@ -78,3 +78,11 @@ runs:
       env:
         NATIVE_RUNTIME: ${{ inputs.native-runtime }}
       run: node config/scripts/ensure-native-runtime.mjs --runtime="$NATIVE_RUNTIME"
+
+    # Node-native test lanes can import Electron-backed modules even though their
+    # native addons must stay rebuilt for Node. Install only Electron's package
+    # binary after the Node ABI rebuild; the helper is verified and idempotent.
+    - name: Install Electron package binary for Node-native tests
+      if: inputs.native-runtime == 'node'
+      shell: bash
+      run: node config/scripts/install-electron-package-binary.mjs
