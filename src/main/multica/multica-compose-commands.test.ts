@@ -5,6 +5,8 @@ import {
   type MulticaLifecycleAction
 } from './multica-compose-commands'
 
+const NUL = String.fromCharCode(0)
+
 const lifecycle: MulticaInstanceLifecycle = {
   kind: 'docker-compose',
   workingDirectory: '/srv/multica',
@@ -106,7 +108,8 @@ describe('buildMulticaComposeInvocation', () => {
     ['working directory', { ...lifecycle, workingDirectory: ' ' }],
     ['compose file', { ...lifecycle, composeFiles: [''] }],
     ['environment file', { ...lifecycle, environmentFile: '\n.env' }],
-    ['project name', { ...lifecycle, projectName: 'team\nother' }]
+    ['project name', { ...lifecycle, projectName: 'team\nother' }],
+    ['NUL byte', { ...lifecycle, workingDirectory: `/srv${NUL}multica` }]
   ])('rejects an unsafe %s', (_name, unsafeLifecycle) => {
     expect(() =>
       buildMulticaComposeInvocation(
