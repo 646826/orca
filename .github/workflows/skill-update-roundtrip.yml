@@ -35,6 +35,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Fetch upstream release tags
+        shell: bash
+        run: git fetch --force https://github.com/stablyai/orca.git 'refs/tags/v*:refs/tags/v*'
       - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
