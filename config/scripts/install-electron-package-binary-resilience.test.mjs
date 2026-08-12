@@ -75,6 +75,7 @@ describe('Electron package download resilience', () => {
 
     try {
       writeFakeElectronPackage(projectDir)
+      // Node exposes NGHTTP2_REFUSED_STREAM through this stable outer error code.
       writeFakeElectronGet(projectDir, {
         downloadFailures: 1,
         errorCode: 'ERR_HTTP2_STREAM_ERROR'
