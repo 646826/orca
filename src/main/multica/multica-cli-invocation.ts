@@ -137,8 +137,6 @@ function buildOperationArgs(operation: MulticaCliReadOperation): string[] {
       return buildIssueSearchArgs(operation)
     case 'issue-list':
       return buildIssueListArgs(operation)
-    default:
-      return assertNever(operation)
   }
 }
 
@@ -251,8 +249,4 @@ function requireHttpUrl(value: string): string {
     throw new Error('Invalid Multica server URL')
   }
   return safe
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unsupported Multica CLI operation: ${String(value)}`)
 }
