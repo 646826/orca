@@ -112,7 +112,7 @@ function resolveCli(profile: MulticaConnectionProfile): ResolvedMulticaCli {
 function buildOperationArgs(operation: MulticaCliReadOperation): string[] {
   switch (operation.kind) {
     case 'version':
-      return ['version']
+      return jsonArgs('version')
     case 'auth-status':
       return jsonArgs('auth', 'status')
     case 'workspace-list':
@@ -140,8 +140,8 @@ function buildOperationArgs(operation: MulticaCliReadOperation): string[] {
   }
 }
 
-function jsonArgs(resource: string, action: string): string[] {
-  return [resource, action, '--output', 'json']
+function jsonArgs(...command: string[]): string[] {
+  return [...command, '--output', 'json']
 }
 
 function buildIssueListArgs(
