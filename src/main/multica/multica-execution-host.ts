@@ -49,6 +49,7 @@ type RemoteShellTarget = Extract<
 const DEFAULT_HELPER_COMMAND = 'orca-ide'
 const HELPER_ARGS = ['multica', 'host-exec', '--envelope-stdin'] as const
 const TARGET_TEXT_MAX_CHARS = 4096
+const SAFE_REMOTE_HELPER = /^[A-Za-z0-9_./-]+$/
 
 export async function runMulticaOnExecutionHost(
   input: RunMulticaOnExecutionHostInput
@@ -96,9 +97,8 @@ export function wrapMulticaInvocationForExecutionTarget(
   target: RemoteShellTarget
 ): MulticaProcessInvocation {
   const validated = validateInvocation(invocation)
-  const helper = requireTargetText(
-    target.helperCommand ?? DEFAULT_HELPER_COMMAND,
-    'host helper command'
+  const helper = requireRemoteHelper(
+    target.helperCommand ?? DEFAULT_HELPER_COMMAND
   )
   const stdin = encodeMulticaHostEnvelope(validated)
 
@@ -187,6 +187,17 @@ function sshIdentityArgs(identityFile: string | undefined): string[] {
   return identityFile === undefined
     ? []
     : ['-i', requireTargetText(identityFile, 'SSH identity file')]
+}
+
+function requireRemoteHelper(value: string): string {
+  const helper = requireTargetText(value, 'host helper command')
+  if (!SAFE_REMOTE_HELPER.test(helper)) {
+    throw new MulticaExecutionHostError(
+      'invalid-execution-target',
+      'Invalid Multica host helper command'
+    )
+  }
+  return helper
 }
 
 function requireTargetText(value: string, label: string): string {
