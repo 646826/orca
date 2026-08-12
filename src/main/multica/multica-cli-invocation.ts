@@ -43,7 +43,6 @@ const WORKSPACE_SCOPED_OPERATIONS = new Set<MulticaCliReadOperation['kind']>([
   'skill-list',
   'runtime-list'
 ])
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
 const SAFE_SORT = /^[A-Za-z0-9_.:-]{1,128}$/
 
 export function buildMulticaCliInvocation(
@@ -220,10 +219,20 @@ function requireOpaqueIdentifier(value: string, label: string): string {
 }
 
 function requireSafeText(value: string, label: string, maxLength: number): string {
-  if (!value.trim() || value.length > maxLength || CONTROL_CHARACTERS.test(value)) {
+  if (!value.trim() || value.length > maxLength || containsControlCharacter(value)) {
     throw new Error(`Invalid Multica ${label}`)
   }
   return value
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code <= 31 || code === 127) {
+      return true
+    }
+  }
+  return false
 }
 
 function requireHttpUrl(value: string): string {
