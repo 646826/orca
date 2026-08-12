@@ -23,3 +23,7 @@ jobs:
         run: >-
           pnpm exec vitest run --config config/vitest.config.ts
           tests/e2e/cross-version-wire/cross-version-terminal-wire.unit.test.ts
+      - name: Run TypeScript checks
+        run: pnpm typecheck
+      - name: Enforce file size limits
+        run: pnpm run check:max-lines-ratchet
