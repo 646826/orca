@@ -1,0 +1,150 @@
+name: Patch Electron mirror fallback
+
+on:
+  push:
+    branches:
+      - feat/multica-local-process-executor
+    paths:
+      - .github/workflows/patch-electron-mirror-fallback.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/multica-local-process-executor
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply exact-context patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          installer_path = Path('config/scripts/install-electron-package-binary.mjs')
+          installer = installer_path.read_text(encoding='utf-8')
+
+          installer = installer.replace(
+              "const MAX_RETRY_DELAY_MS = 5 * 60 * 1000\n",
+              "const MAX_RETRY_DELAY_MS = 5 * 60 * 1000\nconst MAX_FALLBACK_MIRROR_LENGTH = 2048\n",
+              1,
+          )
+
+          old_retry_setup = """  const retryDelays = parseElectronDownloadRetryDelays(
+              process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
+            )
+
+            for (let attempt = 0; ; attempt += 1) {
+          """.replace('          ', '')
+          new_retry_setup = """  const retryDelays = parseElectronDownloadRetryDelays(
+              process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
+            )
+            const fallbackMirrorOptions = parseElectronFallbackMirror(
+              process.env.ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR
+            )
+
+            for (let attempt = 0; ; attempt += 1) {
+          """.replace('          ', '')
+          if old_retry_setup not in installer:
+              raise SystemExit('retry setup context not found')
+          installer = installer.replace(old_retry_setup, new_retry_setup, 1)
+
+          old_options = """    const downloadOptions = {
+              ...baseDownloadOptions,
+              cacheRoot: join(attemptDirectory, 'cache'),
+              tempDirectory: attemptDirectory
+            }
+          """.replace('          ', '')
+          new_options = """    const mirrorOptions = getAttemptMirrorOptions(attempt, fallbackMirrorOptions)
+            const downloadOptions = {
+              ...baseDownloadOptions,
+              cacheRoot: join(attemptDirectory, 'cache'),
+              tempDirectory: attemptDirectory,
+              ...(mirrorOptions ? { mirrorOptions } : {})
+            }
+          """.replace('          ', '')
+          if old_options not in installer:
+              raise SystemExit('download options context not found')
+          installer = installer.replace(old_options, new_options, 1)
+
+          insertion_marker = """  return delays
+            }
+
+            function isTransientDownloadError(error) {
+          """.replace('          ', '')
+          mirror_helpers = """  return delays
+            }
+
+            function parseElectronFallbackMirror(configured) {
+              if (configured === undefined) {
+                return undefined
+              }
+              if (configured.length === 0 || configured.length > MAX_FALLBACK_MIRROR_LENGTH) {
+                throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+              }
+
+              let mirror
+              try {
+                mirror = new URL(configured)
+              } catch {
+                throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+              }
+              if (
+                mirror.protocol !== 'https:' ||
+                !mirror.hostname ||
+                mirror.username ||
+                mirror.password ||
+                mirror.search ||
+                mirror.hash ||
+                !mirror.pathname.endsWith('/')
+              ) {
+                throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+              }
+              return { mirror: mirror.toString(), customDir: '{{ version }}' }
+            }
+
+            function getAttemptMirrorOptions(attempt, fallbackMirrorOptions) {
+              return fallbackMirrorOptions && attempt % 2 === 1 ? fallbackMirrorOptions : undefined
+            }
+
+            function isTransientDownloadError(error) {
+          """.replace('          ', '')
+          if insertion_marker not in installer:
+              raise SystemExit('mirror helper insertion context not found')
+          installer = installer.replace(insertion_marker, mirror_helpers, 1)
+          installer_path.write_text(installer, encoding='utf-8')
+
+          action_path = Path('.github/actions/install-node-dependencies/action.yml')
+          action = action_path.read_text(encoding='utf-8')
+          old_action_step = """    - name: Install Electron package binary for Node-native tests
+                if: inputs.native-runtime == 'node'
+                shell: bash
+                run: node config/scripts/install-electron-package-binary.mjs
+          """.replace('              ', '')
+          new_action_step = """    - name: Install Electron package binary for Node-native tests
+                if: inputs.native-runtime == 'node'
+                shell: bash
+                env:
+                  # The helper still validates the archive against Electron's bundled checksums.
+                  ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR: https://repo.huaweicloud.com/electron/
+                run: node config/scripts/install-electron-package-binary.mjs
+          """.replace('              ', '')
+          if old_action_step not in action:
+              raise SystemExit('Electron action step context not found')
+          action_path.write_text(action.replace(old_action_step, new_action_step, 1), encoding='utf-8')
+          PY
+
+      - name: Commit fallback implementation
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            config/scripts/install-electron-package-binary.mjs \
+            .github/actions/install-node-dependencies/action.yml
+          git commit -m 'fix(ci): fall back to checksummed Electron mirror'
+          git push origin HEAD:feat/multica-local-process-executor
