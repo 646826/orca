@@ -40,19 +40,19 @@ describe('executeLocalMulticaProcess', () => {
 
   it('passes stdin and the allowlisted invocation environment without shell interpolation', async () => {
     const literal = '$(echo should-not-run); & exit 9'
-    const script = [
-      "let input = ''",
-      "process.stdin.setEncoding('utf8')",
-      "process.stdin.on('data', (chunk) => { input += chunk })",
-      "process.stdin.on('end', () => {",
-      "  process.stdout.write(JSON.stringify({",
-      '    input,',
-      '    token: process.env.MULTICA_TOKEN,',
-      '    literal: process.argv[1],',
-      "    leaked: process.env.ORCA_MULTICA_UNSAFE ?? null",
-      '  }))',
-      '})'
-    ].join(';')
+    const script = `
+      let input = ''
+      process.stdin.setEncoding('utf8')
+      process.stdin.on('data', (chunk) => { input += chunk })
+      process.stdin.on('end', () => {
+        process.stdout.write(JSON.stringify({
+          input,
+          token: process.env.MULTICA_TOKEN,
+          literal: process.argv[1],
+          leaked: process.env.ORCA_MULTICA_UNSAFE ?? null
+        }))
+      })
+    `
 
     const result = await executeLocalMulticaProcess(
       nodeInvocation(script, {
