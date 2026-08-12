@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { MulticaProcessResult } from '../../shared/multica/multica-host-envelope'
+import type {
+  MulticaProcessInvocation,
+  MulticaProcessResult
+} from '../../shared/multica/multica-host-envelope'
 import type { MulticaConnectionProfile } from '../../shared/multica/multica-types'
 import {
   MulticaReadTransport,
@@ -137,7 +140,12 @@ describe('MulticaReadTransport', () => {
   it('does not resolve or invent a credential for credential-free CLI profiles', async () => {
     const profile = cliProfile()
     const resolveCredential = vi.fn()
-    const executeCli = vi.fn(async () => processResult())
+    const executeCli = vi.fn(
+      async (_input: {
+        profile: MulticaConnectionProfile
+        invocation: MulticaProcessInvocation
+      }) => processResult()
+    )
     const transport = new MulticaReadTransport({
       resolveCredential,
       executeRest: vi.fn(),
