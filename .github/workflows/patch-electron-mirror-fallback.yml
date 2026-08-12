@@ -25,117 +25,114 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def replace_once(text, old, new, label):
+              if text.count(old) != 1:
+                  raise SystemExit(f'{label} context count={text.count(old)}')
+              return text.replace(old, new, 1)
+
           installer_path = Path('config/scripts/install-electron-package-binary.mjs')
           installer = installer_path.read_text(encoding='utf-8')
-
-          installer = installer.replace(
-              "const MAX_RETRY_DELAY_MS = 5 * 60 * 1000\n",
-              "const MAX_RETRY_DELAY_MS = 5 * 60 * 1000\nconst MAX_FALLBACK_MIRROR_LENGTH = 2048\n",
-              1,
+          installer = replace_once(
+              installer,
+              'const MAX_RETRY_DELAY_MS = 5 * 60 * 1000\n',
+              'const MAX_RETRY_DELAY_MS = 5 * 60 * 1000\nconst MAX_FALLBACK_MIRROR_LENGTH = 2048\n',
+              'retry constant',
           )
 
-          old_retry_setup = """  const retryDelays = parseElectronDownloadRetryDelays(
-              process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
-            )
+          retry_marker = (
+              '  const retryDelays = parseElectronDownloadRetryDelays(\n'
+              '    process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS\n'
+              '  )\n'
+          )
+          installer = replace_once(
+              installer,
+              retry_marker,
+              retry_marker
+              + '  const fallbackMirrorOptions = parseElectronFallbackMirror(\n'
+              + '    process.env.ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR\n'
+              + '  )\n',
+              'retry setup',
+          )
 
-            for (let attempt = 0; ; attempt += 1) {
-          """.replace('          ', '')
-          new_retry_setup = """  const retryDelays = parseElectronDownloadRetryDelays(
-              process.env.ORCA_ELECTRON_PACKAGE_RETRY_DELAYS_MS
-            )
-            const fallbackMirrorOptions = parseElectronFallbackMirror(
-              process.env.ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR
-            )
+          attempt_marker = (
+              '    const attemptDirectory = mkdtempSync(join(tempRoot, `attempt-${attempt + 1}-`))\n'
+              '    const downloadOptions = {\n'
+          )
+          installer = replace_once(
+              installer,
+              attempt_marker,
+              '    const attemptDirectory = mkdtempSync(join(tempRoot, `attempt-${attempt + 1}-`))\n'
+              + '    const mirrorOptions = getAttemptMirrorOptions(attempt, fallbackMirrorOptions)\n'
+              + '    const downloadOptions = {\n',
+              'attempt setup',
+          )
+          installer = replace_once(
+              installer,
+              '      tempDirectory: attemptDirectory\n    }\n',
+              '      tempDirectory: attemptDirectory,\n'
+              + '      ...(mirrorOptions ? { mirrorOptions } : {})\n'
+              + '    }\n',
+              'attempt options',
+          )
 
-            for (let attempt = 0; ; attempt += 1) {
-          """.replace('          ', '')
-          if old_retry_setup not in installer:
-              raise SystemExit('retry setup context not found')
-          installer = installer.replace(old_retry_setup, new_retry_setup, 1)
+          helper_marker = '  return delays\n}\n\nfunction isTransientDownloadError(error) {\n'
+          helper_block = '''  return delays
+          }
 
-          old_options = """    const downloadOptions = {
-              ...baseDownloadOptions,
-              cacheRoot: join(attemptDirectory, 'cache'),
-              tempDirectory: attemptDirectory
+          function parseElectronFallbackMirror(configured) {
+            if (configured === undefined) {
+              return undefined
             }
-          """.replace('          ', '')
-          new_options = """    const mirrorOptions = getAttemptMirrorOptions(attempt, fallbackMirrorOptions)
-            const downloadOptions = {
-              ...baseDownloadOptions,
-              cacheRoot: join(attemptDirectory, 'cache'),
-              tempDirectory: attemptDirectory,
-              ...(mirrorOptions ? { mirrorOptions } : {})
-            }
-          """.replace('          ', '')
-          if old_options not in installer:
-              raise SystemExit('download options context not found')
-          installer = installer.replace(old_options, new_options, 1)
-
-          insertion_marker = """  return delays
-            }
-
-            function isTransientDownloadError(error) {
-          """.replace('          ', '')
-          mirror_helpers = """  return delays
-            }
-
-            function parseElectronFallbackMirror(configured) {
-              if (configured === undefined) {
-                return undefined
-              }
-              if (configured.length === 0 || configured.length > MAX_FALLBACK_MIRROR_LENGTH) {
-                throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
-              }
-
-              let mirror
-              try {
-                mirror = new URL(configured)
-              } catch {
-                throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
-              }
-              if (
-                mirror.protocol !== 'https:' ||
-                !mirror.hostname ||
-                mirror.username ||
-                mirror.password ||
-                mirror.search ||
-                mirror.hash ||
-                !mirror.pathname.endsWith('/')
-              ) {
-                throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
-              }
-              return { mirror: mirror.toString(), customDir: '{{ version }}' }
+            if (configured.length === 0 || configured.length > MAX_FALLBACK_MIRROR_LENGTH) {
+              throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
             }
 
-            function getAttemptMirrorOptions(attempt, fallbackMirrorOptions) {
-              return fallbackMirrorOptions && attempt % 2 === 1 ? fallbackMirrorOptions : undefined
+            let mirror
+            try {
+              mirror = new URL(configured)
+            } catch {
+              throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
             }
+            if (
+              mirror.protocol !== 'https:' ||
+              !mirror.hostname ||
+              mirror.username ||
+              mirror.password ||
+              mirror.search ||
+              mirror.hash ||
+              !mirror.pathname.endsWith('/')
+            ) {
+              throw new Error('ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR is invalid')
+            }
+            return { mirror: mirror.toString(), customDir: '{{ version }}' }
+          }
 
-            function isTransientDownloadError(error) {
-          """.replace('          ', '')
-          if insertion_marker not in installer:
-              raise SystemExit('mirror helper insertion context not found')
-          installer = installer.replace(insertion_marker, mirror_helpers, 1)
+          function getAttemptMirrorOptions(attempt, fallbackMirrorOptions) {
+            return fallbackMirrorOptions && attempt % 2 === 1 ? fallbackMirrorOptions : undefined
+          }
+
+          function isTransientDownloadError(error) {
+          '''.replace('          ', '')
+          installer = replace_once(installer, helper_marker, helper_block, 'mirror helpers')
           installer_path.write_text(installer, encoding='utf-8')
 
           action_path = Path('.github/actions/install-node-dependencies/action.yml')
           action = action_path.read_text(encoding='utf-8')
-          old_action_step = """    - name: Install Electron package binary for Node-native tests
-                if: inputs.native-runtime == 'node'
-                shell: bash
-                run: node config/scripts/install-electron-package-binary.mjs
-          """.replace('              ', '')
-          new_action_step = """    - name: Install Electron package binary for Node-native tests
-                if: inputs.native-runtime == 'node'
-                shell: bash
-                env:
-                  # The helper still validates the archive against Electron's bundled checksums.
-                  ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR: https://repo.huaweicloud.com/electron/
-                run: node config/scripts/install-electron-package-binary.mjs
-          """.replace('              ', '')
-          if old_action_step not in action:
-              raise SystemExit('Electron action step context not found')
-          action_path.write_text(action.replace(old_action_step, new_action_step, 1), encoding='utf-8')
+          action_marker = (
+              "    - name: Install Electron package binary for Node-native tests\n"
+              "      if: inputs.native-runtime == 'node'\n"
+              "      shell: bash\n"
+          )
+          action = replace_once(
+              action,
+              action_marker,
+              action_marker
+              + '      env:\n'
+              + "        # Mirror archives remain pinned by Electron's bundled checksums.\n"
+              + '        ORCA_ELECTRON_PACKAGE_FALLBACK_MIRROR: https://repo.huaweicloud.com/electron/\n',
+              'Electron action step',
+          )
+          action_path.write_text(action, encoding='utf-8')
           PY
 
       - name: Commit fallback implementation
