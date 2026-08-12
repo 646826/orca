@@ -21,6 +21,9 @@ const CHECKOUT_FORMAT = 1
 const ARCHIVE_PATHS = ['src/main', 'src/shared', 'src/preload', 'src/renderer', 'src/types']
 
 const BASELINE_REF_ENV = 'ORCA_CROSS_VERSION_BASELINE_REF'
+const UPSTREAM_URL_ENV = 'ORCA_CROSS_VERSION_UPSTREAM_URL'
+const DEFAULT_UPSTREAM_URL = 'https://github.com/stablyai/orca.git'
+const UPSTREAM_TAG_REFSPEC = 'refs/tags/v*:refs/tags/v*'
 
 export type ReleaseCheckout = {
   /** The ref as requested, e.g. `v1.4.169`. */
@@ -59,37 +62,81 @@ function compareReleaseTags(a: string, b: string): number {
   return 0
 }
 
+type BaselineReleaseOptions = {
+  overrideRef?: string
+  upstreamUrl?: string
+  runGit?: (args: string[]) => string
+  sleep?: (milliseconds: number) => void
+}
+
+function listReleaseTags(runGit: (args: string[]) => string): string[] {
+  return runGit(['tag', '--list', 'v[0-9]*']).split('\n').filter(Boolean)
+}
+
+function blockingSleep(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+}
+
+function fetchUpstreamReleaseTags(options: BaselineReleaseOptions): void {
+  const runGit = options.runGit ?? git
+  const sleep = options.sleep ?? blockingSleep
+  const upstreamUrl =
+    options.upstreamUrl?.trim() || process.env[UPSTREAM_URL_ENV]?.trim() || DEFAULT_UPSTREAM_URL
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      runGit(['fetch', '--force', upstreamUrl, UPSTREAM_TAG_REFSPEC])
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < 3) {
+        sleep(attempt * 5_000)
+      }
+    }
+  }
+  throw new Error(
+    `Cross-version harness could not fetch release tags from ${upstreamUrl}: ${String(lastError)}. ` +
+      `Pin a local ref with ${BASELINE_REF_ENV} to run without network access.`
+  )
+}
+
 /**
  * The version point the harness pairs current code against. An explicit
  * {@link BASELINE_REF_ENV} wins; otherwise the newest non-prerelease `v*` tag.
- *
- * Throws rather than skipping: a cross-version lane that quietly runs nothing is
- * the exact failure this harness exists to prevent.
+ * Forks hydrate canonical upstream tags on demand because GitHub does not copy
+ * tag refs into forks automatically.
  */
-export function resolveBaselineReleaseRef(): string {
-  const override = process.env[BASELINE_REF_ENV]?.trim()
+export function resolveBaselineReleaseRefWith(options: BaselineReleaseOptions = {}): string {
+  const override = (options.overrideRef ?? process.env[BASELINE_REF_ENV] ?? '').trim()
   if (override) {
     return override
   }
+  const runGit = options.runGit ?? git
   let tags: string[]
   try {
-    tags = git(['tag', '--list', 'v[0-9]*']).split('\n').filter(Boolean)
+    tags = listReleaseTags(runGit)
   } catch (error) {
     throw new Error(
       `Cross-version harness could not list git tags in ${REPO_ROOT}: ${String(error)}. ` +
         `Run it inside a git checkout, or pin a ref with ${BASELINE_REF_ENV}.`
     )
   }
-  const releases = tags.filter((tag) => !tag.includes('-')).sort(compareReleaseTags)
-  const latest = releases.at(-1)
+  if (!tags.some((tag) => !tag.includes('-'))) {
+    fetchUpstreamReleaseTags({ ...options, runGit })
+    tags = listReleaseTags(runGit)
+  }
+  const latest = tags.filter((tag) => !tag.includes('-')).sort(compareReleaseTags).at(-1)
   if (!latest) {
     throw new Error(
-      `Cross-version harness found no release tags matching v[0-9]* (saw ${tags.length} tag(s) total). ` +
-        'CI checkouts default to a shallow clone with no tags: use `actions/checkout` with `fetch-depth: 0`, ' +
-        `or pin a ref with ${BASELINE_REF_ENV}.`
+      `Cross-version harness found no release tags matching v[0-9]* after upstream hydration. ` +
+        `Pin a ref with ${BASELINE_REF_ENV}.`
     )
   }
   return latest
+}
+
+export function resolveBaselineReleaseRef(): string {
+  return resolveBaselineReleaseRefWith()
 }
 
 function resolveCommit(ref: string): string {
