@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { resolveBaselineReleaseRef } from './release-checkout'
+import { resolveBaselineReleaseRef, resolveBaselineReleaseRefWith } from './release-checkout'
 import {
   JOURNEY_INPUTS,
   JOURNEY_STEPS,
@@ -90,6 +90,66 @@ function expectWireCompatible(record: JourneyRecord): void {
     expect(start).toMatchObject({ kind: 'scrollback', cols: 120, rows: 40, source: 'headless' })
   }
 }
+
+describe('cross-version baseline release resolution', () => {
+  it('hydrates canonical release tags when a fork checkout has none', () => {
+    let listed = 0
+    const commands: string[][] = []
+    const baseline = resolveBaselineReleaseRefWith({
+      overrideRef: '',
+      upstreamUrl: 'https://github.com/stablyai/orca.git',
+      runGit: (args) => {
+        commands.push(args)
+        if (args[0] === 'tag') {
+          listed++
+          return listed === 1 ? '' : 'v1.4.168\nv1.4.169-rc.1\nv1.4.167'
+        }
+        if (args[0] === 'fetch') {
+          return ''
+        }
+        throw new Error(`unexpected git command: ${args.join(' ')}`)
+      },
+      sleep: () => undefined
+    })
+
+    expect(baseline).toBe('v1.4.168')
+    expect(commands).toContainEqual([
+      'fetch',
+      '--force',
+      'https://github.com/stablyai/orca.git',
+      'refs/tags/v*:refs/tags/v*'
+    ])
+  })
+
+  it('retries transient upstream fetch failures with bounded backoff', () => {
+    let listed = 0
+    let attempts = 0
+    const waits: number[] = []
+    const baseline = resolveBaselineReleaseRefWith({
+      overrideRef: '',
+      upstreamUrl: 'https://github.com/stablyai/orca.git',
+      runGit: (args) => {
+        if (args[0] === 'tag') {
+          listed++
+          return listed === 1 ? '' : 'v1.4.168'
+        }
+        if (args[0] === 'fetch') {
+          attempts++
+          if (attempts < 3) {
+            throw new Error('transient TLS failure')
+          }
+          return ''
+        }
+        throw new Error(`unexpected git command: ${args.join(' ')}`)
+      },
+      sleep: (milliseconds) => waits.push(milliseconds)
+    })
+
+    expect(baseline).toBe('v1.4.168')
+    expect(attempts).toBe(3)
+    expect(waits).toEqual([5_000, 10_000])
+  })
+})
 
 describe('cross-version remote terminal wire', () => {
   it(
