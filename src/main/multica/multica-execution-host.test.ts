@@ -157,16 +157,17 @@ describe('runMulticaOnExecutionHost', () => {
       ],
       shell: false
     })
-    expect(wrapped.args.join(' ')).not.toContain(invocation.command)
+    expect(wrapped.args).not.toContain('issue')
+    expect(wrapped.args).not.toContain('list')
     expect(decodeMulticaHostEnvelope(requireStdin(wrapped))).toEqual(invocation)
   })
 
   it('dispatches runtime targets through the injected runtime executor', async () => {
     const local = captureExecutor()
-    const runtimeCalls: Array<{
+    const runtimeCalls: {
       environmentId: string
       invocation: MulticaProcessInvocation
-    }> = []
+    }[] = []
     const target: MulticaExecutionTarget = {
       kind: 'runtime',
       id: 'runtime:agent-box',
