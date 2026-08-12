@@ -1,4 +1,5 @@
 import { redactMulticaSecrets } from '../../shared/multica/multica-redaction'
+import { cancelUnreadResponseBody } from '../lib/unread-response-body'
 
 export const MULTICA_REST_RESPONSE_MAX_BYTES = 10 * 1024 * 1024
 
@@ -77,6 +78,7 @@ export function formatMulticaDiagnostic(value: string, maxChars: number): string
 async function readBoundedResponseText(response: Response): Promise<string> {
   const contentLength = parseContentLength(response.headers.get('content-length'))
   if (contentLength !== undefined && contentLength > MULTICA_REST_RESPONSE_MAX_BYTES) {
+    await cancelUnreadResponseBody(response)
     throw responseTooLargeError()
   }
   if (!response.body) {
