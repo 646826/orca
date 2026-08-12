@@ -1,0 +1,56 @@
+name: Patch Electron download status compatibility
+
+on:
+  push:
+    branches:
+      - feat/multica-local-process-executor
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/multica-local-process-executor
+          fetch-depth: 0
+
+      - name: Apply exact-context patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('config/scripts/install-electron-package-binary.mjs')
+          text = path.read_text(encoding='utf-8')
+          old = "const statusCode = candidate?.statusCode ?? candidate?.response?.statusCode"
+          if text.count(old) != 2:
+              raise SystemExit(f'expected exactly two legacy status readers, found {text.count(old)}')
+          text = text.replace(old, 'const statusCode = getDownloadStatusCode(candidate)')
+          marker = "function formatDownloadError(error) {\n"
+          helper = (
+              "function getDownloadStatusCode(candidate) {\n"
+              "  return (\n"
+              "    candidate?.statusCode ?? candidate?.response?.statusCode ?? candidate?.response?.status\n"
+              "  )\n"
+              "}\n\n"
+          )
+          if text.count(marker) != 1:
+              raise SystemExit('formatDownloadError marker changed')
+          text = text.replace(marker, helper + marker)
+          path.write_text(text, encoding='utf-8')
+          PY
+          rm .github/workflows/patch-electron-download-status.yml
+          git diff --check
+
+      - name: Commit compatibility patch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add config/scripts/install-electron-package-binary.mjs .github/workflows/patch-electron-download-status.yml
+          git commit -m 'fix(ci): classify standard Fetch Response status codes'
+          git push origin HEAD:feat/multica-local-process-executor
