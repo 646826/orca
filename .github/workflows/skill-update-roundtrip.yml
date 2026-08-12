@@ -37,7 +37,18 @@ jobs:
           persist-credentials: false
       - name: Fetch upstream release tags
         shell: bash
-        run: git fetch --force https://github.com/stablyai/orca.git 'refs/tags/v*:refs/tags/v*'
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if git fetch --force https://github.com/stablyai/orca.git 'refs/tags/v*:refs/tags/v*'; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo 'Failed to fetch upstream release tags after 3 attempts.' >&2
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
       - uses: actions/setup-node@v6
         with:
           node-version-file: package.json
