@@ -75,6 +75,7 @@ describe('Electron package download resilience', () => {
 
     try {
       writeFakeElectronPackage(projectDir)
+      // @electron/get attaches the native Fetch Response object rather than a statusCode field.
       writeFakeElectronGet(projectDir, { downloadFailures: 1, responseStatus: 503 })
       writeFakeExtractor(projectDir)
 
