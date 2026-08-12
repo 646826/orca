@@ -14,13 +14,10 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ELECTRON_DOWNLOAD_RETRY_DELAYS_MS,
   parseElectronDownloadRetryDelays
-} from './electron-package-download-retry.mjs'
+} from './install-electron-package-binary.mjs'
 
 const sourceScriptPath = fileURLToPath(
   new URL('./install-electron-package-binary.mjs', import.meta.url)
-)
-const sourceRetryPolicyPath = fileURLToPath(
-  new URL('./electron-package-download-retry.mjs', import.meta.url)
 )
 
 describe('Electron package download resilience', () => {
@@ -83,10 +80,6 @@ function mkTempProject() {
   copyFileSync(
     sourceScriptPath,
     join(projectDir, 'config', 'scripts', 'install-electron-package-binary.mjs')
-  )
-  copyFileSync(
-    sourceRetryPolicyPath,
-    join(projectDir, 'config', 'scripts', 'electron-package-download-retry.mjs')
   )
   return projectDir
 }
