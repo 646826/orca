@@ -1,0 +1,184 @@
+name: Fork macOS installer (pinned source, no release)
+
+on:
+  push:
+    branches: [codex/macos-installer-7c4f1106]
+    paths: [.github/workflows/fork-macos-installer.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-macos-installer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 7c4f1106f381a3c52fb64e6bddf73e2d9a93e965
+  SOURCE_TREE: 709fbd5ada5126fe189db684e16fb93a135409d6
+  ORCA_BACKGROUND_LAUNCH: '1'
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+  CSC_NAME: '-'
+  ORCA_COMPUTER_MACOS_SIGN_IDENTITY: '-'
+  NODE_OPTIONS: --max-old-space-size=4096
+
+jobs:
+  installer:
+    if: github.repository == '646826/orca' && github.event.repository.private == false
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            macho_arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+            macho_arch: x86_64
+    env:
+      TARGET_ARCH: ${{ matrix.arch }}
+      MACHO_ARCH: ${{ matrix.macho_arch }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout only the reviewed public source
+        uses: actions/checkout@v6
+        with:
+          repository: 646826/orca
+          ref: 7c4f1106f381a3c52fb64e6bddf73e2d9a93e965
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+
+      - name: Verify immutable source and native host
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          test -z "$(git status --porcelain)"
+          test "$(node -p 'process.arch')" = "$TARGET_ARCH"
+          xcodebuild -version
+          swift --version
+          df -h .
+
+      - name: Setup repository-pinned and verified pnpm
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Install frozen desktop and mobile dependencies
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm --dir mobile install --frozen-lockfile
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml mobile/package.json mobile/pnpm-lock.yaml mobile/pnpm-workspace.yaml
+
+      - name: Stamp a local build identity without editing source
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_ENV"
+          import { getLocalBuildIdentity } from './config/scripts/build-mac-local.mjs'
+          const identity = getLocalBuildIdentity()
+          console.log(`ORCA_BUILD_COMMIT=${identity.commit}`)
+          console.log(`ORCA_LOCAL_BUILD_VERSION=${identity.version}`)
+          NODE
+
+      - name: Build desktop, web and mobile-web assets
+        run: pnpm run build:desktop:assets
+
+      - name: Build and verify macOS helpers
+        run: |
+          set -euo pipefail
+          pnpm run build:computer-macos
+          pnpm run build:keyboard-layout-macos
+          pnpm run build:notification-status-macos
+          pnpm run verify:computer-native
+          pnpm run verify:macos-entitlements
+
+      - name: Prepare pinned terminal Node and Electron native runtime
+        run: |
+          set -euo pipefail
+          node config/scripts/pinned-node-downloads.mjs "darwin-$TARGET_ARCH"
+          pnpm run ensure:electron-runtime
+
+      - name: Package this architecture with ad-hoc signing and no publication
+        run: |
+          pnpm exec electron-builder --config config/electron-builder.config.cjs \
+            --mac dmg --"$TARGET_ARCH" --publish never -c.mac.identity=-
+
+      - name: Verify installer, signature, architecture and packaged CLI
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find dist -maxdepth 2 -type d -name Orca.app -print -quit)"
+          test -n "$APP_PATH"
+          export APP_PATH
+          /usr/bin/lipo "$APP_PATH/Contents/MacOS/Orca" -verify_arch "$MACHO_ARCH"
+          /usr/bin/codesign --verify --deep --strict "$APP_PATH"
+          /usr/bin/codesign -dvv "$APP_PATH" 2>&1 | tee "$RUNNER_TEMP/orca-signature.txt"
+          grep -q 'Signature=adhoc' "$RUNNER_TEMP/orca-signature.txt"
+          node <<'NODE'
+          const { spawnSync } = require('node:child_process')
+          const { join } = require('node:path')
+          const result = spawnSync(join(process.env.APP_PATH, 'Contents/Resources/bin/orca'), ['--version'], {
+            encoding: 'utf8', timeout: 60000,
+            env: { ...process.env, ORCA_USER_DATA_PATH: join(process.env.RUNNER_TEMP, 'orca-cli-smoke') }
+          })
+          process.stdout.write(result.stdout || '')
+          process.stderr.write(result.stderr || '')
+          if (result.error || result.status !== 0) throw new Error(`Packaged CLI failed: ${result.error || result.status}`)
+          NODE
+          hdiutil verify "dist/orca-macos-$TARGET_ARCH.dmg"
+          git diff --exit-code
+
+      - name: Prepare installer, checksum and installation notes only
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/orca-download"
+          cp "dist/orca-macos-$TARGET_ARCH.dmg" "$RUNNER_TEMP/orca-download/"
+          cd "$RUNNER_TEMP/orca-download"
+          shasum -a 256 "orca-macos-$TARGET_ARCH.dmg" > SHA256SUMS.txt
+          cat > README.txt <<EOF
+          Orca fork test build for macOS $TARGET_ARCH
+          Version: $ORCA_LOCAL_BUILD_VERSION
+          Source: https://github.com/646826/orca/commit/$SOURCE_SHA
+          Source tree: $SOURCE_TREE
+          Build: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          Choose arm64 for Apple Silicon (M-series); x64 for Intel.
+          Download and unzip the Actions artifact, then open the DMG.
+          Do NOT replace your stable Orca.app. Copy this trial Orca.app to a separate folder,
+          for example \$HOME/Applications/Orca Trial/Orca.app, and launch its exact executable:
+          "\$HOME/Applications/Orca Trial/Orca.app/Contents/MacOS/Orca" --user-data-dir="\$HOME/Library/Application Support/Orca Fork Trial 7c4f1106"
+          Always use that dedicated-profile command; ordinary double-click may reuse your stable profile.
+          The bundle ID remains com.stablyai.orca. A separate profile is NOT a sandbox and does not
+          isolate your native agent accounts or OS permissions. Back up important data before testing.
+
+          This is a test build, ad-hoc signed, not Developer ID signed or notarized.
+          macOS may block opening it. The workflow makes no Gatekeeper or system security changes.
+          Automatic download/install is off, but upstream update checks remain in the exact source.
+          Do not select an in-app update if you want to retain this fork version.
+          The optional cross-platform orcad deployment template is not included; managed SSH
+          host installation from this bundle is therefore unavailable. Local desktop/CLI assets are included.
+          The computer-use helper requires macOS 14+; bundled terminal Node requires macOS 13.5+.
+
+          Checks: packaged runtime and terminal PTY probes, CLI --version, native architecture,
+          ad-hoc code signature, and DMG checksum verification. No full GUI acceptance test is claimed.
+          Verify the download with: shasum -a 256 -c SHA256SUMS.txt
+          Artifacts expire after 7 days. No GitHub release or upstream publication was created.
+          EOF
+          cat SHA256SUMS.txt
+          du -h "orca-macos-$TARGET_ARCH.dmg"
+          cat README.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload downloadable installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: orca-macos-${{ matrix.arch }}-7c4f1106
+          path: ${{ runner.temp }}/orca-download/
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
