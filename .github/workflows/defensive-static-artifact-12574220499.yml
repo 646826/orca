@@ -1,0 +1,414 @@
+# Defensive diagnostics of one immutable artifact; adding this file triggers the scan.
+# No repository checkout, installer rebuild, release, third-party sample upload,
+# target execution, security-setting changes, or browser-warning workaround.
+name: Defensive static scan of pinned ARM64 artifact
+
+'on':
+  push:
+    branches: [codex/security-static-artifact-12574220499]
+    paths: [.github/workflows/defensive-static-artifact-12574220499.yml]
+
+permissions:
+  actions: read
+
+concurrency:
+  group: defensive-static-artifact-12574220499
+  cancel-in-progress: false
+
+jobs:
+  static-scan:
+    if: github.repository == '646826/orca' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Initialize isolated scratch paths and fixed scope
+        id: prepare
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/orca-static-12574220499"
+          mkdir -m 700 "$root"
+          mkdir -m 700 "$root/reports" "$root/db"
+          printf 'SCAN_ROOT=%s\n' "$root" >> "$GITHUB_ENV"
+          cat > "$root/reports/scope.txt" <<'SCOPE'
+          Exact repository: 646826/orca (must remain public).
+          Exact Actions run: 40127999908. Exact artifact: 12574220499.
+          ZIP bytes: 251153120.
+          ZIP SHA256: fc48d55f0f46941ab67ce6e28d06263d84ea7d0cd47d18ce9045dfced046a9d5.
+          DMG SHA256: f1ad75d607896b2d290adb9942fb59a5530df552fc5d9f203343cda545ad72f4.
+          One standard Ubuntu 24.04 runner. No matrix, checkout, build or app execution.
+          No installer republishing, third-party sample submission or security bypass.
+          Only fixed-path text reports are uploaded; retention is three days.
+          A no-match result is not proof of safety and does not invalidate Chrome's warning.
+          SCOPE
+          {
+            date -u '+started_utc=%Y-%m-%dT%H:%M:%SZ'
+            printf 'ImageOS=%s\nImageVersion=%s\n' "${ImageOS:-unknown}" "${ImageVersion:-unknown}"
+            uname -a
+            cat /etc/os-release
+            df -h "$RUNNER_TEMP"
+          } > "$root/reports/environment.txt"
+
+      - name: Install distro ClamAV tools only (no application dependencies)
+        id: install
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          sudo apt-get update -o Acquire::Retries=2 > "$SCAN_ROOT/reports/apt-update.txt" 2>&1
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            clamav clamav-freshclam ca-certificates > "$SCAN_ROOT/reports/apt-install.txt" 2>&1
+          {
+            apt-cache policy clamav clamav-freshclam
+            dpkg-query -W -f='${Package} ${Version}\n' clamav clamav-freshclam
+            /usr/bin/clamscan --version
+            /usr/bin/freshclam --version
+          } > "$SCAN_ROOT/reports/engine.txt"
+          /usr/bin/clamscan --help > "$SCAN_ROOT/reports/clamscan-help.txt"
+
+      - name: Fetch and verify official current ClamAV signatures
+        id: definitions
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          # A private runner-owned database avoids the system daemon's locks.
+          # Do not stop/disable any service or alter system ClamAV configuration.
+          cat > "$SCAN_ROOT/freshclam.conf" <<EOF
+          DatabaseDirectory $SCAN_ROOT/db
+          DatabaseMirror database.clamav.net
+          TestDatabases yes
+          MaxAttempts 2
+          ConnectTimeout 30
+          ReceiveTimeout 60
+          ScriptedUpdates yes
+          EOF
+          set +e
+          timeout --signal=TERM --kill-after=15s 300s /usr/bin/freshclam \
+            --config-file="$SCAN_ROOT/freshclam.conf" --stdout > "$SCAN_ROOT/reports/freshclam.txt" 2>&1
+          rc=$?
+          set -e
+          printf 'freshclam_exit_status=%s\n' "$rc" > "$SCAN_ROOT/reports/definitions-status.txt"
+          test "$rc" -eq 0
+          shopt -s nullglob
+          for stem in main daily bytecode; do
+            files=("$SCAN_ROOT/db/$stem.cvd" "$SCAN_ROOT/db/$stem.cld")
+            found=0
+            for db in "${files[@]}"; do
+              test -f "$db" || continue
+              /usr/bin/sigtool --info "$db" >> "$SCAN_ROOT/reports/definitions.txt"
+              sha256sum "$db" >> "$SCAN_ROOT/reports/definitions.txt"
+              found=$((found + 1))
+            done
+            test "$found" -eq 1
+          done
+          /usr/bin/clamscan --database="$SCAN_ROOT/db" --version >> "$SCAN_ROOT/reports/engine.txt"
+
+      - name: Download exact existing artifact and safely verify three members
+        id: identity
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          """Proposed runner-only download and strict extraction. Never executes payloads."""
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import stat
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import zipfile
+
+          REPO = "646826/orca"
+          ARTIFACT_ID = 12574220499
+          RUN_ID = 40127999908
+          ZIP_BYTES = 251153120
+          ZIP_SHA256 = "fc48d55f0f46941ab67ce6e28d06263d84ea7d0cd47d18ce9045dfced046a9d5"
+          DMG_SHA256 = "f1ad75d607896b2d290adb9942fb59a5530df552fc5d9f203343cda545ad72f4"
+          DMG_NAME = "orca-macos-arm64.dmg"
+          CAPS = {DMG_NAME: 512 * 1024**2, "SHA256SUMS.txt": 128 * 1024, "README.txt": 128 * 1024}
+
+
+          def require(value, message):
+              if not value:
+                  raise ValueError(message)
+
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+
+          def safe_extract(zip_path, output, expected_zip_hash, expected_zip_bytes, expected_dmg_hash):
+              """Only fixed flat regular filenames; bounded streaming writes, never extractall."""
+              require(zip_path.stat().st_size == expected_zip_bytes, "ZIP size mismatch")
+              with zip_path.open("rb") as source:
+                  require(hashlib.file_digest(source, "sha256").hexdigest() == expected_zip_hash, "ZIP SHA256 mismatch")
+              output.mkdir(mode=0o700, exist_ok=False)
+              inventory = []
+              with zipfile.ZipFile(zip_path) as archive:
+                  entries = archive.infolist()
+                  require(len(entries) == 3 and {z.filename for z in entries} == set(CAPS), "ZIP member allowlist/count mismatch")
+                  for entry in entries:
+                      require(entry.orig_filename == entry.filename, "ZIP filename was normalized")
+                      require(not entry.is_dir(), "ZIP directory prohibited")
+                      require(not entry.flag_bits & 1, "Encrypted ZIP member prohibited")
+                      mode = entry.external_attr >> 16
+                      require(stat.S_IFMT(mode) in (0, stat.S_IFREG), "ZIP non-regular member prohibited")
+                      require(entry.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED), "ZIP compression outside allowlist")
+                      require(0 < entry.file_size <= CAPS[entry.filename], "ZIP member size outside bound")
+                      require(0 < entry.compress_size <= expected_zip_bytes, "ZIP compressed size outside bound")
+                      require(entry.file_size <= entry.compress_size * 200, "ZIP compression ratio outside bound")
+                  require(sum(z.file_size for z in entries) <= sum(CAPS.values()), "ZIP total expansion outside bound")
+                  for entry in entries:
+                      destination = output / entry.filename
+                      fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                      digest = hashlib.sha256()
+                      count = 0
+                      with os.fdopen(fd, "wb") as target, archive.open(entry, "r") as source:
+                          while chunk := source.read(1024 * 1024):
+                              count += len(chunk)
+                              require(count <= entry.file_size and count <= CAPS[entry.filename], "ZIP streamed expansion exceeded bound")
+                              target.write(chunk)
+                              digest.update(chunk)
+                      require(count == entry.file_size, "ZIP member size mismatch")
+                      os.chmod(destination, 0o400)
+                      sha = digest.hexdigest()
+                      if entry.filename == DMG_NAME:
+                          require(sha == expected_dmg_hash, "DMG SHA256 mismatch")
+                      inventory.append({"filename": entry.filename, "bytes": count, "sha256": sha, "crc32": f"{entry.CRC:08x}"})
+              manifest = (output / "SHA256SUMS.txt").read_text(encoding="utf-8").split()
+              require(manifest == [expected_dmg_hash, DMG_NAME], "SHA256SUMS.txt differs from independently pinned DMG hash/name")
+              return inventory
+
+
+          def download(root):
+              token = os.environ.pop("GH_TOKEN")
+              opener = urllib.request.build_opener(NoRedirect())
+              endpoint = f"https://api.github.com/repos/{REPO}/actions/artifacts/{ARTIFACT_ID}"
+              headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "orca-defensive-static-scan"}
+              with opener.open(urllib.request.Request(endpoint, headers=headers), timeout=60) as response:
+                  metadata_bytes = response.read(1024 * 1024 + 1)
+              require(len(metadata_bytes) <= 1024 * 1024, "Artifact metadata exceeds bound")
+              metadata = json.loads(metadata_bytes)
+              require(metadata["id"] == ARTIFACT_ID and metadata["workflow_run"]["id"] == RUN_ID, "Artifact/run mismatch")
+              require(metadata["workflow_run"]["repository_id"] == 1330352095, "Artifact repository mismatch")
+              require(metadata["size_in_bytes"] == ZIP_BYTES and metadata.get("expired") is False, "Artifact size/expiry mismatch")
+              require(metadata.get("digest") == "sha256:" + ZIP_SHA256, "GitHub artifact digest mismatch")
+              # Only this request has a token. Never forward it to the signed storage URL.
+              try:
+                  response = opener.open(urllib.request.Request(endpoint + "/zip", headers=headers), timeout=60)
+              except urllib.error.HTTPError as error:
+                  require(error.code == 302, f"Artifact download API returned HTTP {error.code}")
+                  location = error.headers.get("Location", "")
+                  error.close()
+              else:
+                  response.close()
+                  raise ValueError("Expected the documented GitHub artifact HTTP 302 redirect")
+              del token, headers
+              parsed = urllib.parse.urlsplit(location)
+              require(parsed.scheme == "https" and not parsed.username and not parsed.password and parsed.port in (None, 443), "Invalid storage URL")
+              require(bool(parsed.hostname) and parsed.hostname.endswith((".blob.core.windows.net", ".actions.githubusercontent.com", ".githubusercontent.com")), "Unapproved GitHub storage host; stop for review")
+              # No redirect following on storage either. A changed delivery scheme fails closed.
+              path = root / "source-artifact.zip"
+              digest = hashlib.sha256()
+              count = 0
+              with opener.open(urllib.request.Request(location, headers={"User-Agent": "orca-defensive-static-scan"}), timeout=60) as response, path.open("xb") as target:
+                  require(response.status == 200, "Storage response is not HTTP 200")
+                  while chunk := response.read(1024 * 1024):
+                      count += len(chunk)
+                      require(count <= ZIP_BYTES, "Artifact download exceeded exact size")
+                      digest.update(chunk)
+                      target.write(chunk)
+              require(count == ZIP_BYTES and digest.hexdigest() == ZIP_SHA256, "Downloaded ZIP identity mismatch")
+              os.chmod(path, 0o400)
+              inventory = safe_extract(path, root / "payload", ZIP_SHA256, ZIP_BYTES, DMG_SHA256)
+              result = {"repository": REPO, "artifact_id": ARTIFACT_ID, "run_id": RUN_ID, "zip_bytes": count, "zip_sha256": digest.hexdigest(), "storage_host": parsed.hostname, "files": inventory, "identity_verified": True}
+              (root / "reports" / "identity.json").write_text(json.dumps(result, indent=2) + "\n")
+              print("Exact artifact and DMG identity verified; exactly three bounded regular files extracted.")
+
+
+          if __name__ == "__main__":
+              try:
+                  download(Path(os.environ["SCAN_ROOT"]))
+              except Exception as error:
+                  # urllib exception strings can contain expiring signed URLs: never print them.
+                  detail = str(error) if isinstance(error, ValueError) else type(error).__name__
+                  (Path(os.environ["SCAN_ROOT"]) / "reports" / "download-status.txt").write_text("FAILED: " + detail + "\n")
+                  print("Artifact download/identity verification failed; consult text report.", file=sys.stderr)
+                  sys.exit(1)
+          PY
+
+      - name: Statically scan ZIP and DMG without executing or mounting either
+        id: scan
+        timeout-minutes: 21
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          """Run distro ClamAV as an unprivileged static parser with bounded diagnostics."""
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import resource
+          import selectors
+          import signal
+          import subprocess
+          import sys
+          import time
+
+          ROOT = Path(os.environ["SCAN_ROOT"])
+          REPORTS = ROOT / "reports"
+          OPTIONS = [
+              "--database=" + str(ROOT / "db"), "--official-db-only=yes",
+              "--fail-if-cvd-older-than=2", "--scan-archive=yes", "--allmatch=yes",
+              "--alert-exceeds-max=yes", "--alert-encrypted=yes", "--heuristic-alerts=yes",
+              "--follow-dir-symlinks=0", "--follow-file-symlinks=0",
+              "--max-filesize=1536M", "--max-scansize=4096M", "--max-files=50000",
+              "--max-recursion=40", "--max-scantime=300000", "--max-partitions=50",
+              "--pcre-max-filesize=1536M", "--max-scriptnormalize=64M",
+              "--disable-cache", "--archive-verbose", "--debug",
+              "--tempdir=" + str(ROOT / "scanner-temp"),
+          ]
+
+
+          def limits():
+              resource.setrlimit(resource.RLIMIT_AS, (8 * 1024**3, 8 * 1024**3))
+              resource.setrlimit(resource.RLIMIT_CPU, (600, 600))
+              resource.setrlimit(resource.RLIMIT_FSIZE, (3 * 1024**3, 3 * 1024**3))
+              resource.setrlimit(resource.RLIMIT_NOFILE, (512, 512))
+              resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+
+          def scan(label, target):
+              start = time.monotonic()
+              log_path = REPORTS / (label + "-scan.txt")
+              total = 0
+              stopped = None
+              # Do not pass GitHub credentials, runtime tokens, or other ambient environment
+              # to the untrusted-data parser. No target file is executed or mounted.
+              env = {"PATH": "/usr/bin:/bin", "HOME": str(ROOT), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC"}
+              process = subprocess.Popen(["/usr/bin/clamscan", *OPTIONS, str(target)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, start_new_session=True, preexec_fn=limits)
+              selector = selectors.DefaultSelector()
+              selector.register(process.stdout, selectors.EVENT_READ)
+              with log_path.open("wb") as log:
+                  while selector.get_map():
+                      if time.monotonic() - start > 600:
+                          stopped = "600-second wall-time limit"
+                          os.killpg(process.pid, signal.SIGKILL)
+                          break
+                      for key, _ in selector.select(timeout=1):
+                          chunk = os.read(key.fileobj.fileno(), 65536)
+                          if not chunk:
+                              selector.unregister(key.fileobj)
+                              continue
+                          if total + len(chunk) > 16 * 1024**2:
+                              stopped = "16-MiB diagnostic-log bound"
+                              os.killpg(process.pid, signal.SIGKILL)
+                              break
+                          total += len(chunk)
+                          log.write(chunk)
+                      if stopped:
+                          break
+              selector.close()
+              process.stdout.close()
+              status = process.wait(timeout=30)
+              # Convert arbitrary diagnostic bytes to safe UTF-8 text before upload.
+              diagnostic = log_path.read_bytes().decode("utf-8", errors="replace")
+              diagnostic = diagnostic.replace("\x00", "\\0")
+              log_path.write_text(diagnostic, encoding="utf-8")
+              lines = diagnostic.splitlines()
+              concern_pattern = re.compile(r"(Heuristics\.Limits|ERROR|WARNING|unsupported|unknown.*(compress|stripe)|skip|exceed|timed? ?out|failed)", re.I)
+              concerns = [line[:2000] for line in lines if concern_pattern.search(line)]
+              coverage = {"dmg_parser_observed": "cli_scandmg:" in diagnostic, "hfsplus_validation_observed": "cli_scanhfsplus: validation successful" in diagnostic, "asar_per_member_coverage": "NOT ESTABLISHED; ASAR is not listed in official supported archive formats"}
+              # Even an exit-zero parser warning is an unresolved coverage issue, never a
+              # silently successful security verdict. Raw text is retained for review.
+              incomplete = bool(stopped or status not in (0, 1) or concerns or not all([coverage["dmg_parser_observed"], coverage["hfsplus_validation_observed"]]))
+              classification = "NO_KNOWN_SIGNATURE_MATCH_WITHIN_DECLARED_COVERAGE" if status == 0 and not incomplete else "ALERT_ERROR_OR_COVERAGE_GAP_REQUIRES_REVIEW"
+              return {"input": label, "exit_status": status, "wall_seconds": round(time.monotonic() - start, 2), "forced_stop": stopped, "classification": classification, "coverage": coverage, "diagnostic_concern_count": len(concerns), "diagnostic_concerns_first_100": concerns[:100], "log_bytes": total, "incomplete_or_review_required": incomplete or status != 0}
+
+
+          (ROOT / "scanner-temp").mkdir(mode=0o700, exist_ok=False)
+          (REPORTS / "scan-options.json").write_text(json.dumps({"options": OPTIONS, "process_limits": {"address_space_bytes": 8 * 1024**3, "cpu_seconds": 600, "file_size_bytes": 3 * 1024**3, "open_files": 512, "core_bytes": 0, "wall_seconds_per_input": 600, "log_bytes_per_input": 16 * 1024**2}, "exclusions": "No path or signature exclusions; default PUA/DLP detection remains off; other specialized format/normalization/PCRE-operation limits remain engine defaults recorded in clamscan-help.txt.", "no_execution": True, "no_external_sample_upload": True}, indent=2) + "\n")
+          results = []
+          for label, path in [("zip", ROOT / "source-artifact.zip"), ("dmg", ROOT / "payload" / "orca-macos-arm64.dmg")]:
+              try:
+                  result = scan(label, path)
+              except Exception as error:
+                  result = {"input": label, "error_type": type(error).__name__, "incomplete_or_review_required": True}
+              results.append(result)
+              (REPORTS / "scan-status.json").write_text(json.dumps(results, indent=2) + "\n")
+              print(f"{label}: exit={result.get('exit_status', 'not available')}; review_required={result['incomplete_or_review_required']}")
+          (REPORTS / "interpretation.txt").write_text(
+              "This is a bounded defensive static signature scan of one exact historical artifact.\n"
+              "Exit 0 means no known match within observed parser coverage and configured limits; it is not proof of safety.\n"
+              "Exit 1 may be a malware/heuristic alert OR a configured limit/encryption alert; inspect its name and diagnostics.\n"
+              "Exit 2, signals, timeouts, parser warnings, missing DMG/HFS+ evidence, or capped logs are inconclusive.\n"
+              "ClamAV documents ZIP/DMG/HFS+/HFSX/Mach-O support, not guaranteed coverage of every variant.\n"
+              "No separate ASAR member extraction/scan was performed. ASAR-aware coverage is unproven.\n"
+              "No macOS execution, Gatekeeper assessment, Apple notarization verification, behavioral analysis, or Chrome verdict validation occurred.\n"
+              "A no-match result does not establish Chrome's dangerous-file warning is a false positive. Do not bypass that warning.\n"
+          )
+          sys.exit(1 if any(r["incomplete_or_review_required"] for r in results) else 0)
+          PY
+
+      - name: Record terminal step outcomes without interpreting clean as safe
+        if: always()
+        env:
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          DEFINITIONS_OUTCOME: ${{ steps.definitions.outcome }}
+          IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+          reports = Path(os.environ["RUNNER_TEMP"]) / "orca-static-12574220499" / "reports"
+          reports.mkdir(mode=0o700, parents=True, exist_ok=True)
+          statuses = {name.lower(): os.environ[name + "_OUTCOME"] for name in ("PREPARE", "INSTALL", "DEFINITIONS", "IDENTITY", "SCAN")}
+          record = {"finished_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "step_outcomes": statuses, "safety_proven": False, "chrome_false_positive_proven": False}
+          (reports / "workflow-outcomes.json").write_text(json.dumps(record, indent=2) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("## Bounded defensive static scan\n\n")
+              for step, outcome in statuses.items():
+                  summary.write(f"- {step}: {outcome}\n")
+              summary.write("\nSee the short-retention text report for hashes, engine/definition versions, exact exit statuses, parser evidence, and limits.\n\n")
+              summary.write("**No-match is not proof of safety. ASAR per-member coverage is unproven. This does not establish Chrome's warning is a false positive. Do not bypass the warning.**\n")
+          PY
+
+      - name: Upload only explicitly listed text diagnostics (never installer bytes)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: defensive-static-scan-12574220499-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/orca-static-12574220499/reports/scope.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/environment.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/apt-update.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/apt-install.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/engine.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/clamscan-help.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/freshclam.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/definitions-status.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/definitions.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/identity.json
+            ${{ runner.temp }}/orca-static-12574220499/reports/download-status.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/scan-options.json
+            ${{ runner.temp }}/orca-static-12574220499/reports/scan-status.json
+            ${{ runner.temp }}/orca-static-12574220499/reports/zip-scan.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/dmg-scan.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/interpretation.txt
+            ${{ runner.temp }}/orca-static-12574220499/reports/workflow-outcomes.json
+          retention-days: 3
+          compression-level: 6
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
