@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_SHA: 7c4f1106f381a3c52fb64e6bddf73e2d9a93e965
-  SOURCE_TREE: 709fbd5ada5126fe189db684e16fb93a135409d6
+  SOURCE_SHA: d08293124f9d8cb348c679f5ad7232850fb2341a
+  SOURCE_TREE: e6e7b84c6ff60d218be869027bbf3d4dcb9a5a8d
   ORCA_BACKGROUND_LAUNCH: '1'
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
   CSC_NAME: '-'
@@ -34,9 +34,6 @@ jobs:
           - runner: macos-15
             arch: arm64
             macho_arch: arm64
-          - runner: macos-15-intel
-            arch: x64
-            macho_arch: x86_64
     env:
       TARGET_ARCH: ${{ matrix.arch }}
       MACHO_ARCH: ${{ matrix.macho_arch }}
@@ -48,7 +45,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: 646826/orca
-          ref: 7c4f1106f381a3c52fb64e6bddf73e2d9a93e965
+          ref: d08293124f9d8cb348c679f5ad7232850fb2341a
           persist-credentials: false
 
       - name: Setup Node 24
@@ -77,6 +74,14 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --dir mobile install --frozen-lockfile
           git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml mobile/package.json mobile/pnpm-lock.yaml mobile/pnpm-workspace.yaml
+
+      - name: Verify production MCP packaging boundary on this Mac
+        run: |
+          set -euo pipefail
+          pnpm test \
+            config/scripts/electron-vite-output-contract.test.ts \
+            config/scripts/packaged-mcp-runtime.test.mjs \
+            --maxWorkers=2
 
       - name: Stamp a local build identity without editing source
         run: |
@@ -152,7 +157,7 @@ jobs:
           Download and unzip the Actions artifact, then open the DMG.
           Do NOT replace your stable Orca.app. Copy this trial Orca.app to a separate folder,
           for example \$HOME/Applications/Orca Trial/Orca.app, and launch its exact executable:
-          "\$HOME/Applications/Orca Trial/Orca.app/Contents/MacOS/Orca" --user-data-dir="\$HOME/Library/Application Support/Orca Fork Trial 7c4f1106"
+          "\$HOME/Applications/Orca Trial/Orca.app/Contents/MacOS/Orca" --user-data-dir="\$HOME/Library/Application Support/Orca Fork Trial d0829312"
           Always use that dedicated-profile command; ordinary double-click may reuse your stable profile.
           The bundle ID remains com.stablyai.orca. A separate profile is NOT a sandbox and does not
           isolate your native agent accounts or OS permissions. Back up important data before testing.
@@ -177,7 +182,7 @@ jobs:
       - name: Upload downloadable installer
         uses: actions/upload-artifact@v7
         with:
-          name: orca-macos-${{ matrix.arch }}-7c4f1106
+          name: orca-macos-${{ matrix.arch }}-d0829312
           path: ${{ runner.temp }}/orca-download/
           compression-level: 0
           retention-days: 7
