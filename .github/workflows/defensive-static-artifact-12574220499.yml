@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          root="$RUNNER_TEMP/orca-static-12574220499"
+          root="/tmp/orca-static-12574220499"
           mkdir -m 700 "$root"
           mkdir -m 700 "$root/reports" "$root/db"
           printf 'SCAN_ROOT=%s\n' "$root" >> "$GITHUB_ENV"
@@ -371,7 +371,7 @@ jobs:
           python3 - <<'PY'
           import datetime, json, os
           from pathlib import Path
-          reports = Path(os.environ["RUNNER_TEMP"]) / "orca-static-12574220499" / "reports"
+          reports = Path("/tmp/orca-static-12574220499/reports")
           reports.mkdir(mode=0o700, parents=True, exist_ok=True)
           statuses = {name.lower(): os.environ[name + "_OUTCOME"] for name in ("PREPARE", "INSTALL", "DEFINITIONS", "IDENTITY", "SCAN")}
           record = {"finished_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "step_outcomes": statuses, "safety_proven": False, "chrome_false_positive_proven": False}
@@ -390,25 +390,26 @@ jobs:
         with:
           name: defensive-static-scan-12574220499-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/orca-static-12574220499/reports/scope.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/environment.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/apt-update.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/apt-install.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/engine.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/clamscan-help.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/freshclam.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/definitions-status.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/definitions.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/identity.json
-            ${{ runner.temp }}/orca-static-12574220499/reports/download-status.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/scan-options.json
-            ${{ runner.temp }}/orca-static-12574220499/reports/scan-status.json
-            ${{ runner.temp }}/orca-static-12574220499/reports/zip-scan.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/dmg-scan.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/interpretation.txt
-            ${{ runner.temp }}/orca-static-12574220499/reports/workflow-outcomes.json
+            /tmp/orca-static-12574220499/reports/scope.txt
+            /tmp/orca-static-12574220499/reports/environment.txt
+            /tmp/orca-static-12574220499/reports/apt-update.txt
+            /tmp/orca-static-12574220499/reports/apt-install.txt
+            /tmp/orca-static-12574220499/reports/engine.txt
+            /tmp/orca-static-12574220499/reports/clamscan-help.txt
+            /tmp/orca-static-12574220499/reports/freshclam.txt
+            /tmp/orca-static-12574220499/reports/definitions-status.txt
+            /tmp/orca-static-12574220499/reports/definitions.txt
+            /tmp/orca-static-12574220499/reports/identity.json
+            /tmp/orca-static-12574220499/reports/download-status.txt
+            /tmp/orca-static-12574220499/reports/scan-options.json
+            /tmp/orca-static-12574220499/reports/scan-status.json
+            /tmp/orca-static-12574220499/reports/zip-scan.txt
+            /tmp/orca-static-12574220499/reports/dmg-scan.txt
+            /tmp/orca-static-12574220499/reports/interpretation.txt
+            /tmp/orca-static-12574220499/reports/workflow-outcomes.json
           retention-days: 3
           compression-level: 6
           if-no-files-found: error
           include-hidden-files: false
           overwrite: false
+
