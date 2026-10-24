@@ -201,3 +201,13 @@ The proposed gates below are acceptance targets, not measured guarantees. Run th
 | 100 repeated activations                                                       | Retained heap growth at most 32 MiB after settling; no duplicate user dispatch or tool replay                 |
 
 An explicit resource refusal preserves the original evidence and is preferable to a false successful transfer, but a refusal does not pass the advertised large-history workload. Failed gates must remain visible until the implementation or an explicitly reviewed requirement changes. UI paging, actual activations and model-quality evaluation require separate measurements from byte export.
+
+## macOS installer packaging follow-up (2026-10-24)
+
+The first fork macOS installer run, `40124472494`, compiled desktop assets and native helpers on Apple Silicon and Intel, then failed the unchanged packaging guard because the external MCP SDK was absent from packaged runtime resources. No installer was uploaded by that run.
+
+Packaging correction `e4ced05845859a5131d35af3b5cba45dee283eb5` bundles the pure-JavaScript SDK through the existing main dependency policy and explicitly externalizes its AJV validators. The unchanged runtime collector copies the validators' six-package installed closure. Application logic, dependency versions, manifest, lockfile, permissions and the existing verifier are unchanged. The earlier full selected integration results do not include this later packaging change.
+
+Fresh correction checks passed: 81 tests across six selected config/package/runtime suites (one existing platform skip), full typecheck, lint, normal build and commit hooks. All 232 emitted main JavaScript files were checked in actual ASAR with copied Darwin resources; the existing packaging guard passed. An isolated Node regression compiles the real evidence-server function with production dependency settings and checks staged validator versions, schema compilation, authenticated HTTP initialize/list/call, rejection and close behavior. It is a compiled-component test, not full packaged GUI execution.
+
+A successor native GitHub run must still pass installer, architecture, signature, CLI and DMG checks before a downloadable Mac installer is considered successful. The trial build uses ad-hoc signing, not Developer ID signing or notarization; it must not be described as an official release.

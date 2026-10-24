@@ -2,6 +2,8 @@ import { findSqliteRuntimeTests } from './vitest-sqlite-runtime-scan.mjs'
 
 // SQLite publication, native bindings, worker IPC, socket liveness, and V8 retention use Node.
 const NODE_RUNTIME_INCLUDE = [
+  // Production bundle resolution and the isolated HTTP child use Node.
+  'config/scripts/packaged-mcp-runtime.test.mjs',
   // Presentation/history projections execute real node:sqlite worker threads.
   'src/main/native-chat/conversations/conversation-scratch-*.test.ts',
   'config/scripts/conversation-context-benchmark.test.mjs',

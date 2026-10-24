@@ -25,6 +25,9 @@ const PACKAGED_RUNTIME_PACKAGE_ROOTS = [
   '@linear/sdk',
   '@orca/process-host',
   '@parcel/watcher',
+  // The bundled MCP SDK imports these validators, including generated runtime helpers.
+  'ajv',
+  'ajv-formats',
   'electron-updater',
   'i18next',
   'jsonc-parser',

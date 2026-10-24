@@ -14,6 +14,7 @@ import { createPlainNodeEntryGuardPlugin } from './config/build-plugins/plain-no
 import { resolveBuildSourceCommit } from './config/scripts/build-source-commit.mjs'
 
 const BUNDLED_MAIN_DEPENDENCIES = new Set([
+  '@modelcontextprotocol/sdk',
   'stream-json',
   'stream-chain',
   '@xterm/headless',
@@ -240,6 +241,8 @@ export const electronViteConfig: UserConfig = {
       // directory cannot reach into app.asar; startup-critical pure JS must
       // also survive a partially copied Windows resources tree.
       externalizeDeps: {
+        // Keep the SDK's generated-validator runtime on its packaged dependency boundary.
+        include: ['ajv', 'ajv-formats'],
         exclude: [...BUNDLED_MAIN_DEPENDENCIES]
       },
       rollupOptions: {
