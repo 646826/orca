@@ -273,7 +273,7 @@ jobs:
               "--max-filesize=1536M", "--max-scansize=4096M", "--max-files=50000",
               "--max-recursion=40", "--max-scantime=300000", "--max-partitions=50",
               "--pcre-max-filesize=1536M", "--max-scriptnormalize=64M",
-              "--disable-cache", "--archive-verbose", "--debug",
+              "--disable-cache", "--archive-verbose",
               "--tempdir=" + str(ROOT / "scanner-temp"),
           ]
 
@@ -281,7 +281,7 @@ jobs:
           def limits():
               resource.setrlimit(resource.RLIMIT_AS, (8 * 1024**3, 8 * 1024**3))
               resource.setrlimit(resource.RLIMIT_CPU, (600, 600))
-              resource.setrlimit(resource.RLIMIT_FSIZE, (3 * 1024**3, 3 * 1024**3))
+              resource.setrlimit(resource.RLIMIT_FSIZE, (4 * 1024**3, 4 * 1024**3))
               resource.setrlimit(resource.RLIMIT_NOFILE, (512, 512))
               resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
@@ -326,16 +326,17 @@ jobs:
               lines = diagnostic.splitlines()
               concern_pattern = re.compile(r"(Heuristics\.Limits|ERROR|WARNING|unsupported|unknown.*(compress|stripe)|skip|exceed|timed? ?out|failed)", re.I)
               concerns = [line[:2000] for line in lines if concern_pattern.search(line)]
-              coverage = {"dmg_parser_observed": "cli_scandmg:" in diagnostic, "hfsplus_validation_observed": "cli_scanhfsplus: validation successful" in diagnostic, "asar_per_member_coverage": "NOT ESTABLISHED; ASAR is not listed in official supported archive formats"}
+              coverage = {"dmg_parser_observed": None, "hfsplus_validation_observed": None, "observation_note": "Not collected in this normal-verbosity pass; unknown is not evidence of absent parsing. Prior partial debug run 40131903771 reached DMG/HFS+ but reported executable-header and potentially unsupported-partition gaps.", "asar_per_member_coverage": "NOT ESTABLISHED; ASAR is not listed in official supported archive formats"}
               # Even an exit-zero parser warning is an unresolved coverage issue, never a
               # silently successful security verdict. Raw text is retained for review.
-              incomplete = bool(stopped or status not in (0, 1) or concerns or not all([coverage["dmg_parser_observed"], coverage["hfsplus_validation_observed"]]))
-              classification = "NO_KNOWN_SIGNATURE_MATCH_WITHIN_DECLARED_COVERAGE" if status == 0 and not incomplete else "ALERT_ERROR_OR_COVERAGE_GAP_REQUIRES_REVIEW"
-              return {"input": label, "exit_status": status, "wall_seconds": round(time.monotonic() - start, 2), "forced_stop": stopped, "classification": classification, "coverage": coverage, "diagnostic_concern_count": len(concerns), "diagnostic_concerns_first_100": concerns[:100], "log_bytes": total, "incomplete_or_review_required": incomplete or status != 0}
+              incomplete = bool(stopped or status not in (0, 1) or concerns)
+              coverage_unresolved = True  # Normal verbosity cannot close prior parser/ASAR coverage gaps.
+              classification = "SCAN_COMPLETED_NO_KNOWN_MATCH_COVERAGE_UNRESOLVED" if status == 0 and not incomplete else "ALERT_ERROR_OR_COVERAGE_GAP_REQUIRES_REVIEW"
+              return {"input": label, "exit_status": status, "wall_seconds": round(time.monotonic() - start, 2), "forced_stop": stopped, "classification": classification, "coverage": coverage, "diagnostic_concern_count": len(concerns), "diagnostic_concerns_first_100": concerns[:100], "log_bytes": total, "incomplete_or_review_required": incomplete or status != 0 or coverage_unresolved}
 
 
           (ROOT / "scanner-temp").mkdir(mode=0o700, exist_ok=False)
-          (REPORTS / "scan-options.json").write_text(json.dumps({"options": OPTIONS, "process_limits": {"address_space_bytes": 8 * 1024**3, "cpu_seconds": 600, "file_size_bytes": 3 * 1024**3, "open_files": 512, "core_bytes": 0, "wall_seconds_per_input": 600, "log_bytes_per_input": 16 * 1024**2}, "exclusions": "No path or signature exclusions; default PUA/DLP detection remains off; other specialized format/normalization/PCRE-operation limits remain engine defaults recorded in clamscan-help.txt.", "no_execution": True, "no_external_sample_upload": True}, indent=2) + "\n")
+          (REPORTS / "scan-options.json").write_text(json.dumps({"options": OPTIONS, "process_limits": {"address_space_bytes": 8 * 1024**3, "cpu_seconds": 600, "file_size_bytes": 4 * 1024**3, "open_files": 512, "core_bytes": 0, "wall_seconds_per_input": 600, "log_bytes_per_input": 16 * 1024**2}, "exclusions": "No path or signature exclusions; default PUA/DLP detection remains off; other specialized format/normalization/PCRE-operation limits remain engine defaults recorded in clamscan-help.txt.", "no_execution": True, "no_external_sample_upload": True}, indent=2) + "\n")
           results = []
           for label, path in [("zip", ROOT / "source-artifact.zip"), ("dmg", ROOT / "payload" / "orca-macos-arm64.dmg")]:
               try:
@@ -347,9 +348,12 @@ jobs:
               print(f"{label}: exit={result.get('exit_status', 'not available')}; review_required={result['incomplete_or_review_required']}")
           (REPORTS / "interpretation.txt").write_text(
               "This is a bounded defensive static signature scan of one exact historical artifact.\n"
-              "Exit 0 means no known match within observed parser coverage and configured limits; it is not proof of safety.\n"
+              "Exit 0 means no known match within configured scan limits, not verified complete parser coverage or proof of safety.\n"
               "Exit 1 may be a malware/heuristic alert OR a configured limit/encryption alert; inspect its name and diagnostics.\n"
-              "Exit 2, signals, timeouts, parser warnings, missing DMG/HFS+ evidence, or capped logs are inconclusive.\n"
+              "Exit 2, signals, timeouts, parser warnings, or capped logs are inconclusive.\n"
+              "DMG/HFS+ debug markers are not collected in this normal-verbosity pass; their observation is unknown, not false.\n"
+              "Prior partial debug run 40131903771 observed DMG/HFS+ parsing but executable-header failures and potentially unsupported partitions; those coverage gaps remain unresolved.\n"
+              "Prior evidence: https://github.com/646826/orca/actions/runs/40131903771/artifacts/12575371896 .\n"
               "ClamAV documents ZIP/DMG/HFS+/HFSX/Mach-O support, not guaranteed coverage of every variant.\n"
               "No separate ASAR member extraction/scan was performed. ASAR-aware coverage is unproven.\n"
               "No macOS execution, Gatekeeper assessment, Apple notarization verification, behavioral analysis, or Chrome verdict validation occurred.\n"
@@ -412,4 +416,5 @@ jobs:
           if-no-files-found: error
           include-hidden-files: false
           overwrite: false
+
 
