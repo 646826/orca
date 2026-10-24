@@ -89,36 +89,44 @@ export async function dispatchClaudeMessage(
 ): ReturnType<StructuredAgentSessionAdapter['dispatch']> {
   const messageOptions = input.executionOptions
   let ranOptions: Record<string, string> = {}
-  const outcome = await dispatchClaudeTurn(session, input, async () => {
-    await input.beforeDispatch?.()
-    try {
-      input.signal?.throwIfAborted()
-      input.onInputPreparation?.()
-      if (messageOptions !== undefined) {
-        await applyClaudeMessageOptions(session, messageOptions, timeoutMs, input.signal)
-      }
-      input.signal?.throwIfAborted()
-      input.onExecutionSnapshot?.()
-      ranOptions = claudeExecutionObservations(session)
-      if (messageOptions?.model && ranOptions.model !== messageOptions.model) {
-        delete ranOptions.model
-      }
-    } catch (error) {
-      neverThrowingStructuredAgentSessionLogger(logger).warn(
-        'applying Claude message choices failed',
-        {
-          scope: 'claude-message-options',
-          sessionId: input.sessionId,
-          clientMessageId: input.clientMessageId,
-          error
+  const outcome = await dispatchClaudeTurn(
+    session,
+    { ...input, beforeNativeWrite: input.beforeDispatch },
+    async () => {
+      await input.beforeDispatch?.()
+      try {
+        throwIfSignalAborted(input.signal)
+        input.onInputPreparation?.()
+        if (messageOptions !== undefined) {
+          await applyClaudeMessageOptions(session, messageOptions, timeoutMs, input.signal)
         }
-      )
-      throw error instanceof AgentSessionOptionRejectedError ||
-        isAbortSignalReason(input.signal, error)
-        ? error
-        : new AgentSessionOptionRejectedError(error)
+        throwIfSignalAborted(input.signal)
+        input.onExecutionSnapshot?.()
+        ranOptions = claudeExecutionObservations(session)
+        if (messageOptions?.model && ranOptions.model !== messageOptions.model) {
+          delete ranOptions.model
+        }
+      } catch (error) {
+        neverThrowingStructuredAgentSessionLogger(logger).warn(
+          'applying Claude message choices failed',
+          {
+            scope: 'claude-message-options',
+            sessionId: input.sessionId,
+            clientMessageId: input.clientMessageId,
+            error
+          }
+        )
+        throw error instanceof AgentSessionOptionRejectedError ||
+          isAbortSignalReason(input.signal, error)
+          ? error
+          : new AgentSessionOptionRejectedError(error)
+      }
+      // Options may already have changed; this refusal proves only that no user turn was written.
+      // Keep the authority error outside option-error wrapping so the host can reconcile correctly.
+      await input.beforeDispatch?.()
+      throwIfSignalAborted(input.signal)
     }
-  })
+  )
   // Keep an explicit snapshot, even empty, to prevent fallback to configured choices.
   return outcome.state === 'accepted' || outcome.state === 'admitted'
     ? { ...outcome, ranOptions }

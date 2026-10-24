@@ -34,6 +34,20 @@ describe('a long paste saved as a file', () => {
     expect(readFileSync(saved, 'utf8')).toBe('log line ✓\n')
   })
 
+  it('propagates the captured local session owner to managed storage', async () => {
+    const store = new AgentSessionAttachmentStore(path.join(root, 'agent-session-attachments'), {
+      hasSession: () => true
+    })
+    const write = vi.spyOn(store, 'storeFile')
+    await savePastedTextAsFile(
+      { text: 'source', localAttachmentOwner: { sessionId: 'founder' } },
+      async () => store
+    )
+    expect(write).toHaveBeenCalledWith(expect.any(String), Buffer.from('source'), {
+      sessionId: 'founder'
+    })
+  })
+
   it("goes to the chat's store on its paired server, under a text paste's name", async () => {
     mocks.upload.mockResolvedValue('/srv/agent-session-attachments/u1/orca-paste-1-a.txt')
     const target = {

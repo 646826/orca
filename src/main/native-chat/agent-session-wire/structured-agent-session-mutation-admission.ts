@@ -1,3 +1,4 @@
+import { conversationSwitchMutationRefusal } from './structured-conversation-switch-admission'
 // The one route every mutating agent-session call takes: recompute the fingerprint,
 // accept a plan that declares a command receipt through it, otherwise admit
 // through the ledger and check the lease. Methods cannot grow their own admission rules.
@@ -71,6 +72,7 @@ export type AgentSessionMutationRequest<TValue> = {
   agents: StructuredAgentRegistry
   logger: StructuredAgentSessionLogger
   callerKey: string
+  conversationMutationSupported?: boolean
   envelope: AgentSessionMutationEnvelope
   plan: MutationPlan<TValue>
   /** Journal of the attached session, read after `prepareSession`; absent when this host holds none. */
@@ -130,6 +132,16 @@ export async function admitAndRunAgentSessionMutation<TValue>(
       if (answered !== 'rerun') {
         return answered
       }
+    }
+    const switchRefusal = conversationSwitchMutationRefusal(
+      request.store,
+      envelope.sessionId,
+      plan.method,
+      plan.fields,
+      request.conversationMutationSupported
+    )
+    if (switchRefusal) {
+      return refuseAgentSessionMutation(switchRefusal)
     }
     const record = request.store.getRecord(envelope.sessionId) ?? ledger.record
     const prepared = await request.prepareSession('admit', record)
@@ -191,6 +203,17 @@ export async function admitAndRunAgentSessionMutation<TValue>(
     if (rerun.decision === 'refused') {
       return refuseAgentSessionMutation(rerun.refusal)
     }
+  }
+
+  const switchRefusal = conversationSwitchMutationRefusal(
+    request.store,
+    envelope.sessionId,
+    plan.method,
+    plan.fields,
+    request.conversationMutationSupported
+  )
+  if (switchRefusal) {
+    return refuseAgentSessionMutation(switchRefusal)
   }
 
   const outcome = await runSettledAgentSessionMutation({

@@ -50,7 +50,8 @@ describe('codex dispatch admission', () => {
       'turn/steer': () => ({ turnId: 'turn-1' })
     })
     const settlements: LateSettlement[] = []
-    const adapter = await acquiredCodexAdapter({ codex, settlements })
+    const correlations: LateSettlement[] = []
+    const adapter = await acquiredCodexAdapter({ codex, settlements, correlations })
     const connection = codex.connections[0]!
     startTurn(connection, 'turn-1')
     echoUserMessage(connection, { turnId: 'turn-1', itemId: 'item-u1' })
@@ -59,6 +60,20 @@ describe('codex dispatch admission', () => {
 
     expect(outcome).toMatchObject({ state: 'admitted' })
     expect(settlements).toEqual([])
+    expect(correlations).toEqual([
+      {
+        state: 'origin-correlated',
+        sessionId: 'session-1',
+        clientMessageId: 'client-2',
+        fence: 7,
+        turnIdentity: {
+          provider: 'legacy',
+          agent: 'codex',
+          sessionId: 'session-1',
+          recordId: 'turn-lifecycle:turn-1'
+        }
+      }
+    ])
 
     echoUserMessage(connection, { turnId: 'turn-1', itemId: 'item-u2', clientId: 'client-2' })
 
@@ -67,6 +82,7 @@ describe('codex dispatch admission', () => {
       {
         sessionId: 'session-1',
         clientMessageId: 'client-2',
+        originCorrelation: 'exact',
         providerIdentity: {
           provider: 'codex',
           threadId: CODEX_TEST_THREAD_ID,
@@ -94,6 +110,7 @@ describe('codex dispatch admission', () => {
       {
         sessionId: 'session-1',
         clientMessageId: 'client-2',
+        originCorrelation: 'exact',
         providerIdentity: {
           provider: 'codex',
           threadId: CODEX_TEST_THREAD_ID,
@@ -104,6 +121,7 @@ describe('codex dispatch admission', () => {
       {
         sessionId: 'session-1',
         clientMessageId: 'client-1',
+        originCorrelation: 'exact',
         providerIdentity: {
           provider: 'codex',
           threadId: CODEX_TEST_THREAD_ID,
@@ -171,6 +189,7 @@ describe('codex dispatch admission', () => {
       {
         sessionId: 'session-1',
         clientMessageId: 'client-1',
+        originCorrelation: 'exact',
         providerIdentity: {
           provider: 'codex',
           threadId: CODEX_TEST_THREAD_ID,

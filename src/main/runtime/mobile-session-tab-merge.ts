@@ -1,5 +1,6 @@
 import type {
   RuntimeMobileSessionSnapshotTab,
+  RuntimeMobileSessionClientTab,
   RuntimeMobileSessionTabGroup,
   RuntimeMobileSessionTerminalTab
 } from '../../shared/runtime-types'
@@ -57,7 +58,9 @@ export function getMobileSessionSnapshotTabIdentityKeys(
 }
 
 /** The ids a group tab order may name this tab by. */
-export function getMobileSessionTabOrderIds(tab: RuntimeMobileSessionSnapshotTab): string[] {
+export function getMobileSessionTabOrderIds(
+  tab: RuntimeMobileSessionSnapshotTab | RuntimeMobileSessionClientTab
+): string[] {
   if (tab.type === 'terminal') {
     return [tab.id, tab.parentTabId]
   }
@@ -71,7 +74,9 @@ export function getMobileSessionTabOrderIds(tab: RuntimeMobileSessionSnapshotTab
  * The tab strip in the order a desktop client draws it: groups left to right, each in its tab
  * order. Stable, so split panes keep their order and tabs no group lists stay last.
  */
-export function orderMobileSessionTabsByGroups<T extends RuntimeMobileSessionSnapshotTab>(
+export function orderMobileSessionTabsByGroups<
+  T extends RuntimeMobileSessionSnapshotTab | RuntimeMobileSessionClientTab
+>(
   tabs: readonly T[],
   groups: readonly RuntimeMobileSessionTabGroup[],
   layout: TabGroupLayoutNode | null | undefined

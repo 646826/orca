@@ -140,6 +140,9 @@ export function journalDispatchRowBuilder(
     clientMessageId: input.clientMessageId,
     state: input.state,
     providerItemId,
+    ...(input.state === 'accepted' && input.originCorrelation === 'exact'
+      ? { originCorrelation: 'exact' as const }
+      : {}),
     reason: boundedDispatchReason(input),
     ...(input.state === 'rejected' ? { rejection: input.rejection } : {}),
     ...(input.state === 'rejected' && input.keptAsQueuedMessageId !== undefined

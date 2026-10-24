@@ -59,6 +59,12 @@ export type StructuredAgentSessionContinuationOutcome = {
   refusal?: AgentSessionRefusalReference
 }
 
+/** Trusted host negotiation, captured by the RPC handler, never parsed from its payload. */
+export type StructuredAgentSessionContinuationAdmission = {
+  conversationMutationSupported?: boolean
+  assertMutationSupported?: (sessionId: string) => void
+}
+
 /** The slice of the host one continuation needs. Structural so this module never imports the host. */
 export type StructuredAgentSessionContinuationHost = {
   sessions: ReadonlyMap<string, { journal: AgentSessionJournal }>
@@ -69,6 +75,7 @@ export type StructuredAgentSessionContinuationHost = {
     envelope: AgentSessionMutationEnvelope
     body: AgentJournalMessageItem
     beforeRun?: () => void
+    conversationMutationSupported?: boolean
   }) => Promise<AgentSessionMutationResult<AgentSessionSendResult>>
   awaitSendSettlement: (
     sessionId: string,
@@ -90,14 +97,22 @@ export type StructuredAgentSessionContinuationHost = {
  *  asked at acceptance, inside the session lock, so the first message accepted since decides. */
 export function continuationDeps(
   host: Omit<StructuredAgentSessionContinuationHost, 'stillResumable'>,
-  stillWanted: () => boolean
+  stillWanted: () => boolean,
+  admission?: StructuredAgentSessionContinuationAdmission
 ): StructuredAgentSessionContinuationDeps {
   return {
-    currentFence: host.conversationFence,
+    currentFence: (sessionId) => {
+      admission?.assertMutationSupported?.(sessionId)
+      return host.conversationFence(sessionId)
+    },
     send: (input) =>
       host.send({
         ...input,
+        ...(admission?.conversationMutationSupported !== undefined
+          ? { conversationMutationSupported: admission.conversationMutationSupported }
+          : {}),
         beforeRun: () => {
+          admission?.assertMutationSupported?.(input.envelope.sessionId)
           if (!stillWanted()) {
             throw new RestartContinuationSupersededError()
           }

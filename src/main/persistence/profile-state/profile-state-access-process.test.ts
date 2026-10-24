@@ -1,5 +1,5 @@
 import { once } from 'node:events'
-import { mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { buildSync } from 'esbuild'
@@ -11,9 +11,13 @@ import {
   acquireProfileStateRuntimeAdmission
 } from './profile-state-access'
 import { profileStateAccessPaths } from './profile-state-access-owner'
+import { openStructuredAgentSessionJournalDatabase } from '../../runtime/structured-agent-session-journal-open'
+import { recordingStructuredAgentSessionLogger } from '../../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
+import { JOURNAL_DB_SCHEMA_VERSION } from '../../native-chat/agent-session-journal/journal-database-schema'
 
 const fixture = mkdtempSync(join(tmpdir(), 'orca-state-access-process-'))
 const bundle = join(fixture, 'access.cjs')
+const oldRuntimeBundle = join(fixture, 'runtime-v4.cjs')
 const children = new Set<ReturnType<typeof spawnProcess>>()
 
 beforeAll(async () => {
@@ -24,6 +28,14 @@ beforeAll(async () => {
     platform: 'node',
     format: 'cjs',
     packages: 'external'
+  })
+  buildSync({
+    entryPoints: [resolve(__dirname, 'profile-state-runtime-v4.fixture.ts')],
+    outfile: oldRuntimeBundle,
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    external: ['@orca/process-host']
   })
   await stagePackagedProcessHost(fixture)
 })
@@ -62,9 +74,12 @@ if (mode === 'candidate' || mode === 'published') {
   }
 }
 const access = require(bundle)
-const owner = mode === 'runtime' || mode === 'published'
+const owner = mode === 'runtime' || mode === 'published' || mode === 'journal-runtime-v4'
   ? access.acquireProfileStateRuntimeAdmission(root)
   : access.acquireProfileStateMaintenance(root)
+const database = mode === 'journal-runtime-v4'
+  ? access.openJournalDatabase(require('node:path').join(root, 'agent-session-journal.db'))
+  : null
 fs.writeSync(1, 'ready\\n')
 process.stdin.resume()
 `
@@ -72,7 +87,13 @@ process.stdin.resume()
 async function startChild(root: string, mode: string): Promise<ReturnType<typeof spawnProcess>> {
   const child = spawnProcess({
     program: process.execPath,
-    args: ['-e', CHILD_SOURCE, root, bundle, mode],
+    args: [
+      '-e',
+      CHILD_SOURCE,
+      root,
+      mode === 'journal-runtime-v4' ? oldRuntimeBundle : bundle,
+      mode
+    ],
     env: { ...process.env, ORCA_BACKGROUND_LAUNCH: '1', NODE_PATH: '', NODE_OPTIONS: '' }
   })
   children.add(child)
@@ -110,6 +131,29 @@ async function startChild(root: string, mode: string): Promise<ReturnType<typeof
 }
 
 describe('profile state owners across actual process death', () => {
+  it('refuses journal migration while a baseline runtime holds an open schema-4 connection', async () => {
+    const root = join(fixture, 'journal-runtime-v4')
+    const child = await startChild(root, 'journal-runtime-v4')
+    const admission = acquireProfileStateRuntimeAdmission(root)
+    const databasePath = join(root, 'agent-session-journal.db')
+    const before = readFileSync(databasePath)
+    const logger = recordingStructuredAgentSessionLogger().logger
+    try {
+      expect(() =>
+        openStructuredAgentSessionJournalDatabase({ stateDirectory: root, logger })
+      ).toThrow()
+      expect(readFileSync(databasePath)).toEqual(before)
+      await stopChild(child)
+      const opened = openStructuredAgentSessionJournalDatabase({ stateDirectory: root, logger })
+      try {
+        expect(opened.db.pragma('user_version', { simple: true })).toBe(JOURNAL_DB_SCHEMA_VERSION)
+      } finally {
+        opened.close()
+      }
+    } finally {
+      admission.release()
+    }
+  })
   it('excludes recovery while a runtime lives and reclaims its registration after SIGKILL', async () => {
     const root = join(fixture, 'runtime')
     const child = await startChild(root, 'runtime')

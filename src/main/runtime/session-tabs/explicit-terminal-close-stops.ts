@@ -19,7 +19,10 @@ import {
 
 export abstract class OrcaRuntimeWithStopExplicitlyClosedTabPtys extends OrcaRuntimeWithExplicitCloseTabPtyStops {
   protected abstract getResolvedWorktreeMap(): Promise<Map<string, ResolvedWorktree>>
-  abstract applyLayoutCommand(command: WindowLayoutCommand): Promise<LayoutApplyReply>
+  abstract applyLayoutCommand(
+    command: WindowLayoutCommand,
+    beforeMutation?: () => void
+  ): Promise<LayoutApplyReply>
   protected abstract refreshPtyWorktreeRecordsFromController(
     resolvedWorktrees: ResolvedWorktree[],
     targetWorktreeId?: string | null,

@@ -62,6 +62,9 @@ import type { JournalOperationReceipt, JournalRowWriter } from './journal-row-wr
 import type { JournalSubmissionWriter } from './journal-submission-writer'
 import type { JournalEpochController } from './journal-epoch-controller'
 import { JournalWriteQueue } from './journal-write-queue'
+import { failJournalCommittedAdoption, notifyJournalCommitted } from './journal-commit-publication'
+import { registerJournalCompoundWriter } from './journal-host-compound-writes'
+import { restoreJournalTailFence } from './journal-store-restore'
 import { journalItemExecutionFence, journalItemProvenance } from './journal-item-provenance'
 import { createJournalStoreCollaborators } from './journal-store-collaborators'
 import type { JournalItemAppender } from './journal-item-appender'
@@ -109,29 +112,30 @@ export class AgentSessionJournal {
     this.queue = new JournalWriteQueue(options.identity.sessionId)
     const collaborators = createJournalStoreCollaborators({
       identity: this.identity,
+      requiredInTransaction: options.requiredInTransaction,
       now: this.now,
       mintEpoch: this.mintEpoch,
       serialize: (run) => this.queue.serialize(run),
+      queue: this.queue,
       database: () => this.database,
       state: () => this.state,
       // A newer Orca's database: nothing it holds opens, and every write is refused.
       readOnly: () => this.database.readOnly,
       cursor: this.cursor,
-      adopt: (loaded) => {
-        this.adoptLoadedJournal(loaded)
-        this.onCommitted?.()
-      },
+      adopt: (loaded) => this.adoptLoadedJournal(loaded),
+      adoptionFailed: (error) => failJournalCommittedAdoption(this.queue, error),
+      rollbackFailed: (error) => this.queue.poison(error),
       commit: (rows, savedAt) => {
         for (const row of rows) {
           applyJournalRow(this.state, row, savedAt)
         }
-        this.onCommitted?.()
       },
-      notifyCommitted: () => this.onCommitted?.(),
+      notifyCommitted: () => notifyJournalCommitted(this.onCommitted ?? undefined),
       journal: () => this,
       enqueue: (build, receipt) => this.rowWriter.enqueue(build, receipt)
     })
     this.rowWriter = collaborators.rowWriter
+    registerJournalCompoundWriter(this, this.rowWriter)
     this.epochController = collaborators.epochController
     this.itemAppender = collaborators.itemAppender
     this.lifecycleBatchAppender = collaborators.lifecycleBatchAppender
@@ -354,12 +358,19 @@ export class AgentSessionJournal {
     return this.submissionWriter.append(input, consume, receipt)
   }
 
+  /** On an owned compound lane; preserves the ordinary submission builder and attachment receipt. */
+  planSubmission = (input: JournalSubmissionInput) => this.submissionWriter.plan(input)
+
+  planRetireSubmission = (...args: Parameters<JournalSubmissionWriter['planRetireSubmission']>) =>
+    this.submissionWriter.planRetireSubmission(...args)
+
   /** A dispatch transition (`JournalSubmissionWriter.resolveDispatch`). */
   resolveDispatch(
     input: ResolveDispatchInput,
-    cards?: () => JournalQueuePlan
+    cards?: () => JournalQueuePlan,
+    receipt?: JournalOperationReceipt
   ): Promise<AgentJournalCursor> {
-    return this.submissionWriter.resolveDispatch(input, cards)
+    return this.submissionWriter.resolveDispatch(input, cards, receipt)
   }
 
   /** A provider's late receipt (`JournalSubmissionWriter.acceptLate`). */
@@ -387,9 +398,8 @@ export class AgentSessionJournal {
 
   /** The escape hatch for a forked handle and an unreadable schema. It invalidates every cursor;
    *  clients reload. */
-  async rollEpoch(reason: AgentJournalEpochReason, fence: number): Promise<AgentJournalCursor> {
-    return this.epochController.roll(reason, fence)
-  }
+  rollEpoch = (reason: AgentJournalEpochReason, fence: number): Promise<AgentJournalCursor> =>
+    this.epochController.roll(reason, fence)
 
   replaceEpochItems(
     ...args: Parameters<JournalEpochController['replace']>
@@ -398,6 +408,6 @@ export class AgentSessionJournal {
   }
 
   private adoptLoadedJournal(loaded: JournalLoad): void {
-    this.state = loaded.state
+    this.state = restoreJournalTailFence(this.database, this.identity.sessionId, loaded).state
   }
 }

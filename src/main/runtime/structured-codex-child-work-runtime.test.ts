@@ -5,6 +5,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import type {
   CodexAppServerConnection,
   CodexAppServerConnectionHandlers,
@@ -51,9 +55,12 @@ const ROUTES: Record<string, unknown> = {
 
 describe('structured Codex child work through the production runtime', () => {
   let root: string | null = null
+  let admission: ProfileStateRuntimeAdmission | undefined
 
   afterEach(async () => {
     await stopStructuredAgentSessionRuntime()
+    admission?.release()
+    admission = undefined
     if (root) {
       await rm(root, { recursive: true, force: true })
       root = null
@@ -62,6 +69,7 @@ describe('structured Codex child work through the production runtime', () => {
 
   it("hands its subagents to the status sink under the session's own address", async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-runtime-codex-child-work-'))
+    admission = acquireProfileStateRuntimeAdmission(root)
     const connections: CodexAppServerConnectionHandlers[] = []
     const openConnection: typeof openCodexAppServerConnection = async (_launch, handlers = {}) => {
       connections.push(handlers)

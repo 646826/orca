@@ -1,3 +1,8 @@
+import {
+  installConversationGateTestDependencies,
+  conversationGateTestRequest as request
+} from './conversation-gate.test-fixture'
+export { conversationMembership } from './conversation-gate.test-fixture'
 // The `agentSession.*` dispatcher harness, shared by the suites that exercise the wire
 // boundary. `hostCalls` and `runtimeCalls` keep one identity for the process and are
 // repopulated per test, so a suite can read `hostCalls.close` without re-importing it.
@@ -16,11 +21,11 @@ import {
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 } from '../../../../shared/protocol-version'
-import type { RpcAnyMethodDeclaration, RpcRequest, RpcResponse } from '../core'
+import type { RpcAnyMethodDeclaration, RpcResponse } from '../core'
 import { RpcDispatcher } from '../dispatcher'
+import type { RpcDispatchStreamingOptions } from '../dispatcher-stream-options'
 import { STRUCTURED_AGENT_SESSION_METHODS } from './structured-agent-session'
 import { createStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger'
-import { recordingStructuredAgentSessionLogger } from '../../../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 import { resetStructuredAgentSessionClosesBeforeCreateForTests } from './structured-agent-session-close-before-create'
 
 export const SESSION = 'session-alpha'
@@ -61,10 +66,6 @@ export function attachParams(overrides: Record<string, unknown> = {}) {
     providerHandle: { kind: 'codex', threadId: 'thread-1' },
     ...overrides
   }
-}
-
-function request(method: string, params: unknown): RpcRequest {
-  return { id: 'request-1', authToken: 'token', method, params }
 }
 
 export const hostCalls: Record<string, ReturnType<typeof vi.fn>> = {}
@@ -211,9 +212,8 @@ export function hostStub(): StructuredAgentSessionHost {
     subscribeTurnCompletions: vi.fn(() => () => undefined),
     unsubscribe: vi.fn()
   })
-  const store = { getOperationRow: vi.fn(() => null), getRecord: vi.fn(() => null) }
   // Not a call: the logger the host hands a runtime caller that reports for it.
-  Reflect.set(hostCalls, 'deps', { logger: recordingStructuredAgentSessionLogger().logger, store })
+  installConversationGateTestDependencies(hostCalls)
   return hostCalls as unknown as StructuredAgentSessionHost
 }
 
@@ -269,12 +269,10 @@ export function dispatcher(
 export async function call(
   method: string,
   params: unknown,
-  client?: {
-    clientId?: string
-    clientKind?: 'mobile' | 'runtime'
-    clientCapabilities?: readonly string[]
-    signal?: AbortSignal
-  },
+  client?: Pick<
+    RpcDispatchStreamingOptions,
+    'clientId' | 'pairedDeviceId' | 'clientKind' | 'clientCapabilities' | 'signal'
+  >,
   runtimeOverrides: Record<string, unknown> = {},
   methods?: readonly RpcAnyMethodDeclaration[]
 ): Promise<RpcResponse> {

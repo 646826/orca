@@ -1,3 +1,9 @@
+import {
+  prepareCodexConversationEvidence,
+  assertCodexEvidenceBeforeSpawn,
+  closeCodexConversationEvidence,
+  type CodexConversationEvidence
+} from './codex-conversation-evidence'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import {
   CODEX_STRUCTURED_HANDLE_NAMESPACE,
@@ -59,6 +65,7 @@ export async function acquireCodexStructuredSession(input: {
   const sessionId = acquireInput.identity.sessionId
   const { previousAttempt, attempt } = acquisitions.start(sessionId)
   const acquisition = attempt.window
+  let conversationEvidence: CodexConversationEvidence | undefined
   let unbindReadingControl: (() => void) | undefined
   const provenHandle = acquireInput.identity.providerHandle
   let primaryThreadId =
@@ -121,7 +128,11 @@ export async function acquireCodexStructuredSession(input: {
             ...(acquireInput.options.model ? { model: acquireInput.options.model } : {})
           }
     acquisitions.assertCurrent(sessionId, attempt)
+    conversationEvidence = prepareCodexConversationEvidence(acquireInput, launch)
     account = launch.codexHome ? deps.resolveAccountKind?.(launch.codexHome) : undefined
+    if (conversationEvidence) {
+      assertCodexEvidenceBeforeSpawn(acquireInput, launch, conversationEvidence)
+    }
     const connection = await open(
       {
         command: launch.command,
@@ -156,6 +167,7 @@ export async function acquireCodexStructuredSession(input: {
           ),
         onSpawned: spawnIdentity.onSpawned,
         onExit: (error, exit) => {
+          closeCodexConversationEvidence(conversationEvidence)
           try {
             if (attempt.acquisitionGeneration && !sessions.has(sessionId)) {
               attempt.exitProven = true
@@ -233,6 +245,7 @@ export async function acquireCodexStructuredSession(input: {
           input: acquireInput,
           deps,
           launch,
+          conversationEvidence,
           account,
           sessions,
           acquisitions,
@@ -251,6 +264,7 @@ export async function acquireCodexStructuredSession(input: {
       )
     return { process, acquisitionGeneration }
   } catch (error) {
+    closeCodexConversationEvidence(conversationEvidence)
     if (sessions.get(sessionId)?.connection !== acquisition.connection) {
       return closeFailedCodexAcquisition({
         sessionId,

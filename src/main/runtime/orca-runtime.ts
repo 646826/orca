@@ -18,8 +18,10 @@ import type {
   AgentLaunchPaneVerdict
 } from '../../shared/agent-launch-pane-verdict'
 import { registerWorktreeChangeInvalidator } from '../ipc/worktree-change-invalidators'
-import type { AgentSessionRecordStore } from './agent-session-record-store'
-import { peekOpenedAgentSessionRecordStore } from './agent-session-record-store-slot'
+import {
+  peekOpenedAgentSessionRecordStore,
+  readAgentLaunchPublicationEligibility
+} from './agent-session-record-store-slot'
 import { createAgentLaunchRecordWarmupGate } from './agent-launch-record-warmup-gate'
 import { WorkspaceLayoutStream, type WorkspaceLayoutReads } from './workspace-layout-stream'
 import type { RemoteLayoutSnapshot } from '../../shared/remote-layout-snapshot'
@@ -258,7 +260,10 @@ class OrcaRuntimeService extends OrcaRuntimeSidebarBase {
   }
 
   /** A window's layout command (`layout.apply`), applied to the partitions that hold its tab. */
-  async applyLayoutCommand(command: WindowLayoutCommand): Promise<LayoutApplyReply> {
+  async applyLayoutCommand(
+    command: WindowLayoutCommand,
+    beforeMutation?: () => void
+  ): Promise<LayoutApplyReply> {
     // A workspace's first surface comes after the live terminals main is placing.
     const placing = this.livePlacementSettledFor(command)
     const apply = (): Promise<LayoutApplyReply> =>
@@ -270,7 +275,9 @@ class OrcaRuntimeService extends OrcaRuntimeSidebarBase {
             : [this.tryGetWorkspaceSessionHostIdForWorktree(worktreeId) ?? []].flat(),
         command,
         (move) => rekeyMovedPaneOwners(this, move),
-        this.layoutCommandRun(command)
+        beforeMutation
+          ? { ...this.layoutCommandRun(command), beforeMutation }
+          : this.layoutCommandRun(command)
       )
     // A window's sleep or wake lands after the hook statuses main accepted before it, as in the window.
     const reply = await (ORCA_LAYOUT_OWNER_IS_MAIN && ['sleep', 'wake'].includes(command.type)
@@ -285,10 +292,7 @@ class OrcaRuntimeService extends OrcaRuntimeSidebarBase {
     return this.store?.getRemoteLayoutSnapshots?.() ?? {}
   }
 
-  /** The launch record when it is already open, for a reader that must not wait for it. */
-  openedAgentSessionRecordStore(): AgentSessionRecordStore | null {
-    return peekOpenedAgentSessionRecordStore()
-  }
+  readAgentLaunchPublicationEligibility = readAgentLaunchPublicationEligibility
 }
 // Linear installs these methods on the final runtime prototype below.
 // oxlint-disable-next-line typescript/consistent-type-definitions -- SAFETY: This merge models the installed Linear API.

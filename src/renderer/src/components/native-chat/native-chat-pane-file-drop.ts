@@ -18,6 +18,7 @@ export type NativeChatPaneDragEvent = {
 
 export type CapturedNativeChatDrop = ((paths: string[]) => Promise<void>) & {
   preparationConsumer?: DroppedPathConsumer
+  localAttachmentOwner?: { sessionId: string }
 }
 
 /** The composer's drop claim, published while a composer is mounted in the pane. */

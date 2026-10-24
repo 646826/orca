@@ -1,3 +1,4 @@
+import { createConversationDeliveryPersistence } from '../conversations/conversation-delivery-receipt'
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -162,7 +163,22 @@ beforeEach(async () => {
   cancelTurn = vi.fn(async () => ({ cancelled: true }))
   answerPrompt = vi.fn(async ({ commit }) => commit())
   setOption = vi.fn(async () => undefined)
-  store = await openTestAgentSessionRecordStore(root)
+  store = await openTestAgentSessionRecordStore(root, {
+    conversationDeliveryEvidence: (db, id) =>
+      host?.deps.conversationDeliveryHost
+        ? createConversationDeliveryPersistence(
+            host.deps.conversationDeliveryHost
+          ).conversationDeliveryEvidence(db, id)
+        : null,
+    conversationDeliveryCommit: (db, manifestId, receiptId) => {
+      if (!host?.deps.conversationDeliveryHost) {
+        throw new Error('Delivery host unavailable')
+      }
+      createConversationDeliveryPersistence(
+        host.deps.conversationDeliveryHost
+      ).conversationDeliveryCommit(db, manifestId, receiptId)
+    }
+  })
   recoveryCapsule = new TrackedTestRecoveryCapsule(root)
   log = recordingProductionStructuredAgentSessionLogger()
   host = new StructuredAgentSessionHost({

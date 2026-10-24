@@ -1,3 +1,4 @@
+import { claudeExecutionObservations } from './claude-structured-execution-observations'
 import type { AgentSessionFastModeState } from '../../shared/agent-session-wire'
 import {
   currentModelIsDefaulted,
@@ -199,4 +200,27 @@ export function claudeStructuredSessionOptionsFrom(
       ...(currentModelIsDefaulted(current.id) ? { defaulted: ['model'] as const } : {})
     }
   }
+}
+
+/** Projection uses native observations, never a requested model or a catalog default. */
+export function projectClaudeSessionOptions(session: ClaudeSession | undefined) {
+  if (
+    !session ||
+    session.connection.closed ||
+    session.closeFinalization ||
+    session.closeEnded ||
+    session.contextDeliveryObservation?.initialized !== true
+  ) {
+    return undefined
+  }
+  return {
+    models: claudeStructuredSessionOptionsFrom(session, null).models,
+    options: claudeExecutionObservations(session)
+  }
+}
+
+export function readClaudeOptionRestoreFailures(
+  session: ClaudeSession | undefined
+): readonly string[] {
+  return session?.retiredModel !== undefined && !session.options.has('model') ? ['model'] : []
 }

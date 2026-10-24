@@ -1,3 +1,4 @@
+import { NATIVE_CONVERSATION_RUNTIME_CAPABILITY } from '../../../../shared/conversation-runtime-capabilities'
 import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -131,6 +132,7 @@ describe('session tab structured capability mutations', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Dispatcher uses only the methods supplied by this test double.
       const runtime = {
         getRuntimeId: () => 'test-runtime',
+        openAgentSessionRecordStore: async () => ({ conversations: { membership: () => null } }),
         getClientSettings: vi.fn(() => ({ experimentalNativeChat: true })),
         listMobileSessionTabs: vi.fn().mockResolvedValue(snapshot),
         closeMobileSessionTab
@@ -169,7 +171,11 @@ describe('session tab structured capability mutations', () => {
 
 function createFixture(
   capabilities: RuntimeCapability[],
-  options: { clientKind?: 'mobile' | 'runtime'; structuredNativeChatEnabled?: boolean } = {}
+  options: {
+    clientKind?: 'mobile' | 'runtime'
+    structuredNativeChatEnabled?: boolean
+    aggregate?: boolean
+  } = {}
 ) {
   const snapshot = agentSnapshot()
   const calls = {
@@ -181,6 +187,11 @@ function createFixture(
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Dispatcher uses only the methods supplied by this test double.
   const runtime = {
     getRuntimeId: () => 'test-runtime',
+    openAgentSessionRecordStore: async () => ({
+      conversations: {
+        membership: () => (options.aggregate ? { conversationId: 'conversation' } : null)
+      }
+    }),
     listMobileSessionTabs: vi.fn().mockResolvedValue(snapshot),
     getClientSettings: () => ({
       // Why: defaults on, so a fixture that says nothing about the setting exercises capability
@@ -242,4 +253,17 @@ function agentSnapshot() {
     ],
     tabs: [codexTab, claudeTab]
   } as unknown as RuntimeMobileSessionTabsResult
+}
+
+for (const method of METHODS) {
+  it(`requires aggregate capability before ${method.name} changes its participant tab`, async () => {
+    const legacy = createFixture([STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY], { aggregate: true })
+    expect((await legacy.dispatch(method.name, method.params('codex-session'))).ok).toBe(false)
+    expect(legacy.calls[method.runtimeMethod]).not.toHaveBeenCalled()
+    const capable = createFixture(
+      [STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY, NATIVE_CONVERSATION_RUNTIME_CAPABILITY],
+      { aggregate: true }
+    )
+    expect((await capable.dispatch(method.name, method.params('codex-session'))).ok).toBe(true)
+  })
 }

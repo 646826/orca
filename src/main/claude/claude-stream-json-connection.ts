@@ -1,10 +1,11 @@
+import type { ConversationEvidenceLaunchPermit } from '../native-chat/conversations/conversation-evidence-registration'
+import { hasClaudeConversationEvidenceRegistration } from './claude-conversation-evidence'
+import { createClaudeStructuredQuery } from './claude-agent-sdk-query'
 import type { PipedProcessSpawner } from '@orca/process-host/process-spec'
 import { providerDiagnostic, withProviderDiagnostic } from '../../shared/agent-session-failure'
 import type * as ClaudeAgentSdk from '@anthropic-ai/claude-agent-sdk'
 import type { CanUseTool, OnUserDialog, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { spawnProcess } from '@orca/process-host'
-import { buildClaudeChildProcessEnv } from './claude-child-process-environment'
-import { withoutInheritedClaudeConfigDir } from './claude-config-dir-pin'
 import {
   ClaudeControlRequestError,
   createClaudeControlSurface,
@@ -13,11 +14,7 @@ import {
 import { createClaudeChildTreeReaper, proveClaudeChildExit } from './claude-agent-sdk-exit-proof'
 import { withTimeout } from '../../shared/promise-timeout-fallback'
 import type { DescendantTreeVerdict } from '../pty-descendant-exit-verification'
-import { createClaudeCodeProcessSpawn } from './claude-agent-sdk-process-spawn'
-import {
-  claudeUnwrittenUserMessageError,
-  createClaudeUserMessageQueue
-} from './claude-agent-sdk-user-message-queue'
+import { claudeUnwrittenUserMessageError } from './claude-agent-sdk-user-message-queue'
 import type { ClaudeStructuredSdkOptions } from './claude-structured-launch-resolution'
 import { providerStderrForDisplay } from '../provider-process/provider-spawn-failure-report'
 import { withMissingProviderExecutable } from '../provider-process/provider-executable-missing'
@@ -27,20 +24,15 @@ export { ClaudeControlRequestError }
 /** Bound output draining after proven exit so inherited pipes cannot hold close open. */
 export const CLAUDE_READER_DRAIN_AFTER_EXIT_MS = 2_000
 
-/** Lazy import confines SDK executable-search env mutation and missing-package failures to structured Claude. */
-
-let claudeAgentSdk: Promise<typeof ClaudeAgentSdk> | null = null
-
-export function loadClaudeAgentSdk(): Promise<typeof ClaudeAgentSdk> {
-  claudeAgentSdk ??= import('@anthropic-ai/claude-agent-sdk')
-  return claudeAgentSdk
-}
+export { loadClaudeAgentSdk } from './claude-agent-sdk-loader'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
 export type ClaudeStreamJsonLaunch = {
+  evidence?: ConversationEvidenceLaunchPermit
+  evidenceEnv?: Record<string, string>
   /** Orca's resolved user CLI; the SDK falls back to a bundled binary that is not installed. */
   pathToClaudeCodeExecutable: string
   options: ClaudeStructuredSdkOptions
@@ -48,13 +40,6 @@ export type ClaudeStreamJsonLaunch = {
   env?: Record<string, string>
   /** Delete these keys after merging inherited and launch env. */
   envToDelete?: readonly string[]
-}
-
-function withoutKeys(env: Record<string, string>, keys: readonly string[]): Record<string, string> {
-  for (const key of keys) {
-    delete env[key]
-  }
-  return env
 }
 
 export type ClaudeStreamJsonConnectionHandlers = {
@@ -77,6 +62,7 @@ export type ClaudeChildExitVerdict = {
 }
 
 export type ClaudeStreamJsonConnection = ClaudeControlSurface & {
+  evidenceToolRegistered?: () => Promise<boolean>
   readonly pid: number | undefined
   readonly closed: boolean
   /** What the ladder has observed so far; read after a `close()` that returned false. */
@@ -114,28 +100,12 @@ export async function openClaudeStreamJsonConnection(
   spawnImpl: PipedProcessSpawner = spawnProcess,
   queryImpl?: typeof ClaudeAgentSdk.query
 ): Promise<ClaudeStreamJsonConnection> {
-  const { query } = await loadClaudeAgentSdk()
-  const spawner = createClaudeCodeProcessSpawn(spawnImpl, process.platform)
-  const inbox = createClaudeUserMessageQueue()
-  const session = (queryImpl ?? query)({
-    prompt: inbox.messages,
-    options: {
-      ...launch.options,
-      cwd: launch.cwd,
-      // Always supply scrubbed env to prevent ambient auth leaks; only launch.env may pin CLAUDE_CONFIG_DIR.
-      env: withoutKeys(
-        buildClaudeChildProcessEnv(launch.env, {
-          inheritedEnv: withoutInheritedClaudeConfigDir(process.env),
-          scrubConfiguredChildSessionStamps: true
-        }),
-        launch.envToDelete ?? []
-      ),
-      pathToClaudeCodeExecutable: launch.pathToClaudeCodeExecutable,
-      spawnClaudeCodeProcess: spawner.spawn,
-      ...(handlers.canUseTool ? { canUseTool: handlers.canUseTool } : {}),
-      ...(handlers.onUserDialog ? { onUserDialog: handlers.onUserDialog } : {})
-    }
-  })
+  const { session, spawner, inbox, evidenceServer } = await createClaudeStructuredQuery(
+    launch,
+    handlers,
+    spawnImpl,
+    queryImpl
+  )
   const managed = spawner.managed
   const child = managed?.child
   if (!child || !managed) {
@@ -308,6 +278,12 @@ export async function openClaudeStreamJsonConnection(
 
   return {
     ...createClaudeControlSurface(session),
+    ...(evidenceServer
+      ? {
+          evidenceToolRegistered: async () =>
+            hasClaudeConversationEvidenceRegistration(await session.mcpServerStatus())
+        }
+      : {}),
     get pid() {
       return spawner.pid
     },
@@ -327,6 +303,21 @@ export async function openClaudeStreamJsonConnection(
     pauseReading,
     resumeReading,
     send,
-    close
+    ...(launch.evidence
+      ? {
+          async close() {
+            const evidenceClose = launch.evidence?.registration.close().then(
+              () => null,
+              (error: unknown) => error
+            )
+            const result = await close()
+            const failure = await evidenceClose
+            if (failure) {
+              throw failure
+            }
+            return result
+          }
+        }
+      : { close })
   }
 }

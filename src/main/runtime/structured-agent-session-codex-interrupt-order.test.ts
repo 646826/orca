@@ -8,6 +8,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import type {
   CodexAppServerConnection,
   CodexAppServerConnectionHandlers,
@@ -49,6 +53,7 @@ const MODEL = {
 }
 
 let root: string
+let admission: ProfileStateRuntimeAdmission
 let host: StructuredAgentSessionHost
 let fence: number
 let handlers: CodexAppServerConnectionHandlers | undefined
@@ -153,6 +158,7 @@ async function owesWork(): Promise<boolean> {
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-codex-interrupt-order-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   answers = 0
   interrupts = 0
   opened = new Set()
@@ -243,6 +249,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission.release()
   await rm(root, { recursive: true, force: true })
 })
 

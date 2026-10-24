@@ -23,6 +23,7 @@ export type StructuredAgentSessionRestartResumeSurfaces = {
     envelope: AgentSessionMutationEnvelope
     body: AgentJournalMessageItem
     beforeRun?: () => void
+    conversationMutationSupported?: boolean
   }) => Promise<AgentSessionMutationResult<AgentSessionSendResult>>
   awaitSendSettlement: (
     sessionId: string,
@@ -48,7 +49,7 @@ export const STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER =
 type RestartResumeHostBindings = {
   revealSession: StructuredAgentSessionRestartResumeSurfaces['revealSession']
   send: (
-    caller: { callerKey: string },
+    caller: { callerKey: string; conversationMutationSupported?: boolean },
     params: {
       envelope: AgentSessionMutationEnvelope
       body: AgentJournalMessageItem
@@ -70,7 +71,15 @@ export function structuredAgentSessionRestartResumeSurfaces(
   return {
     revealSession: host.revealSession,
     send: (params) =>
-      host.send({ callerKey: STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER }, params),
+      host.send(
+        {
+          callerKey: STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER,
+          ...(params.conversationMutationSupported !== undefined
+            ? { conversationMutationSupported: params.conversationMutationSupported }
+            : {})
+        },
+        params
+      ),
     // Accepted like any send, so its verdict is its delivery, however long the start takes; the
     // wait ends when the submission settles or the session closes.
     awaitSendSettlement: (sessionId, clientMessageId) =>

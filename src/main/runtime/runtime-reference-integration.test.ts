@@ -11,6 +11,7 @@ import type { RuntimeLinearCommands } from './runtime-linear-connection-commands
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 
 vi.mock('./agent-session-record-store-slot', () => ({
+  readAgentLaunchPublicationEligibility: async () => 'unknown',
   peekOpenedAgentSessionRecordStore: () => null,
   openAgentSessionRecordStoreOnce: async () => ({
     store: { listRecords: () => [], getRecord: () => null }

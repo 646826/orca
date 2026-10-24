@@ -1,3 +1,4 @@
+import { createRestartResumeDismiss } from './structured-agent-session-restart-dismiss'
 // Restart offers are durable per-session records. Listing reserves nothing and removes only offers
 // the chat has provably moved past; an explicit action reserves records, and only a completed
 // action removes them — or files what went wrong. Starting the chat's agent again withdraws them.
@@ -32,6 +33,7 @@ import type { StructuredAgentSessionRestartResume } from './structured-agent-ses
 import {
   continuationDeps,
   startStructuredAgentSessionContinuation,
+  type StructuredAgentSessionContinuationAdmission,
   type StructuredAgentSessionContinuationHost,
   type StructuredAgentSessionContinuationOutcome
 } from './structured-agent-session-restart-continuation'
@@ -39,7 +41,7 @@ import { restartContinuationId } from './structured-agent-session-restart-contin
 import { createInterruptedContinuation } from './structured-agent-session-interrupted-continuation'
 import {
   createStructuredAgentSessionRestartOfferWithdrawal,
-  type StructuredAgentSessionRestartOfferSession
+  type StructuredAgentSessionRestartOfferSession as LiveSession
 } from './structured-agent-session-restart-offer-withdrawal'
 import type { StructuredAgentSessionRestartResumeSurfaces } from './structured-agent-session-restart-resume-wiring'
 import { createStructuredAgentSessionRestartWitnesses } from './structured-agent-session-restart-witnesses'
@@ -49,8 +51,6 @@ import {
 } from './structured-agent-session-restart-action-result'
 import { structuredAgentSessionConversationFence } from './structured-agent-session-provider-child'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
-
-type LiveSession = StructuredAgentSessionRestartOfferSession
 
 export type { StructuredAgentSessionRestartResume }
 
@@ -147,7 +147,8 @@ export function createStructuredAgentSessionRestartResume(
     owner: string,
     audience: StructuredAgentSessionRestartAudience | undefined,
     continueOne: (marker: AgentSessionResumeMarker, continuationId: string) => Promise<void>,
-    progress: ReturnType<typeof createRestartResumeProgress>
+    progress: ReturnType<typeof createRestartResumeProgress>,
+    authority?: StructuredAgentSessionContinuationAdmission
   ) => {
     // An explicit action supersedes teardown witnesses captured by this host. The durable mutation
     // lane below also drains a publication already in flight before completion.
@@ -161,6 +162,7 @@ export function createStructuredAgentSessionRestartResume(
     const eligible = restartRowsFor(derived.candidates, audience).filter((candidate) =>
       requested.has(candidate.sessionId)
     )
+    eligible.forEach((candidate) => authority?.assertMutationSupported?.(candidate.sessionId))
     progress.skipExcluded(sessionIds ?? [], eligible)
     if (eligible.length === 0) {
       return null
@@ -176,7 +178,8 @@ export function createStructuredAgentSessionRestartResume(
           deps.recoveryCapsule?.beginResume(
             eligible.map((candidate) => candidate.sessionId),
             operationId,
-            actionAt
+            actionAt,
+            authority?.assertMutationSupported
           ) ?? Promise.resolve([])
       )) ?? []
     const markersBySession = new Map(reserved.map((marker) => [marker.sessionId, marker]))
@@ -226,7 +229,8 @@ export function createStructuredAgentSessionRestartResume(
   const continueAfterRestart: StructuredAgentSessionRestartResume['continueAfterRestart'] = async (
     sessionIds,
     owner,
-    audience
+    audience,
+    authority
   ) => {
     const progress = createRestartResumeProgress(sessions, surfaces.publishStatus)
     try {
@@ -240,7 +244,11 @@ export function createStructuredAgentSessionRestartResume(
         audience,
         async (marker, continuationId) => {
           const started = await startStructuredAgentSessionContinuation(
-            continuationDeps(continuationHost, () => continuationHost.stillResumable(marker)),
+            continuationDeps(
+              continuationHost,
+              () => continuationHost.stillResumable(marker),
+              authority
+            ),
             marker.sessionId,
             marker,
             continuationId
@@ -266,7 +274,8 @@ export function createStructuredAgentSessionRestartResume(
             })
           )
         },
-        progress
+        progress,
+        authority
       )
       await Promise.all(verdicts)
       const resumed = action?.outcomes ?? []
@@ -307,18 +316,7 @@ export function createStructuredAgentSessionRestartResume(
     recordMarkers: witnesses.record,
     list,
     listFailures,
-    // Do not let a teardown witness already captured in this host republish after explicit
-    // dismissal. A later capture is a new interruption and may create a fresh offer normally.
-    // "Dismiss all" keeps what this host does not list, so it reveals every record's chat first.
-    dismiss: (sessionIds, audience) =>
-      failures.dismiss(
-        sessionIds,
-        async (clearAudience) => {
-          witnesses.clear(clearAudience)
-          await revealEvery()
-        },
-        audience
-      ),
+    dismiss: createRestartResumeDismiss(failures, witnesses, revealEvery),
     continueAfterRestart,
     onAgentStarted: withdrawal.onAgentStarted,
     continueInterrupted: createInterruptedContinuation(continuationHost, readMarkers)

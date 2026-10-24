@@ -14,7 +14,11 @@ vi.mock('../../store', () => ({
 vi.mock('../dictation/dictation-control-events', () => ({ dispatchDictationControl: vi.fn() }))
 
 vi.mock('@/i18n/i18n', () => ({
-  translate: (_key: string, fallback: string) => fallback
+  translate: (_key: string, fallback: string, values?: Record<string, string | number>) =>
+    Object.entries(values ?? {}).reduce(
+      (text, [key, value]) => text.replaceAll(`{{${key}}}`, String(value)),
+      fallback
+    )
 }))
 
 vi.mock('@/components/ui/button', () => ({
@@ -234,4 +238,39 @@ describe('NativeChatComposerActions', () => {
     expect(screen.getByRole('img', { name: explanation })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Send' }).hasAttribute('disabled')).toBe(false)
   })
+})
+
+it('keeps native Agent switching separate from the provider session-option picker', () => {
+  const choose = vi.fn()
+  render(
+    <NativeChatComposerActions
+      attachDisabled={false}
+      dictationDisabled={false}
+      sendDisabled={false}
+      isWorking={false}
+      isDictating={false}
+      isDictationHoldMode={false}
+      onAttach={vi.fn()}
+      onDictationToggle={vi.fn()}
+      onDictationHoldStart={vi.fn()}
+      onDictationHoldEnd={vi.fn()}
+      onSend={vi.fn()}
+      sessionOptionsSurface={null}
+      sessionOptionsSnapshot={[]}
+      agentSwitch={{
+        active: { id: 'claude', label: 'Claude Code' },
+        selected: null,
+        choices: [
+          { id: 'claude', label: 'Claude Code' },
+          { id: 'codex', label: 'Codex' }
+        ],
+        busy: false,
+        onSelect: choose
+      }}
+    />
+  )
+  expect(screen.getByTestId('session-option-pickers')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /Agent Claude Code/ }))
+  fireEvent.click(screen.getByRole('option', { name: /Codex/ }))
+  expect(choose).toHaveBeenCalledExactlyOnceWith('codex')
 })

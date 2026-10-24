@@ -1,3 +1,5 @@
+import { cancelConversationTabLifetimes } from '@/runtime/conversation-tab-lifetime'
+import { forgetConversationEntriesForWorkspaces } from '@/components/native-chat/native-chat-conversation-entry-state'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import type { TerminalTab } from '../../../../../../shared/terminal-tab-types'
 import type { Tab } from '../../../../../../shared/tab-types'
@@ -65,6 +67,8 @@ export function cancelStructuredLaunchesForWorktrees(
   worktreeIdSet: ReadonlySet<string>,
   ownedByHost?: (worktreeId: string, executionHostId: ExecutionHostId) => boolean
 ): Set<string> {
+  cancelConversationTabLifetimes(worktreeIdSet, ownedByHost)
+  forgetConversationEntriesForWorkspaces(worktreeIdSet, ownedByHost)
   const cancelledSessionIds = new Set<string>()
   for (const launch of structuredLaunchStates()) {
     const worktreeId = launch.intent.worktreeId

@@ -22,6 +22,22 @@ import {
   BundledSkillExecuteRequestSchema,
   BundledSkillPlanRequestSchema
 } from '../bundled-skill-plan'
+import {
+  ConversationArchiveCleanupParams,
+  ConversationArchiveDeleteParams,
+  ConversationArchiveStatusParams
+} from '../conversation-archive-rpc'
+import {
+  ConversationPromoteSurfaceParams,
+  ConversationSelectAgentParams,
+  ConversationSurfaceReadParams,
+  ConversationSurfaceVisibilityParams,
+  ConversationUnwatchParams
+} from '../conversation-surface-rpc'
+import {
+  ConversationTransferIntentionsParams,
+  ConversationTransferRecoveryParams
+} from '../conversation-transfer-recovery'
 import { DelegatedMobileDeviceSyncParamsSchema } from '../delegated-mobile-device-contract'
 import {
   DesktopBrowserBridgeAttachParams,
@@ -185,6 +201,20 @@ import {
   ConnectorStart,
   ConnectorWatch
 } from './connector-params'
+import {
+  ConversationAdvanceParams,
+  ConversationCancelParams,
+  ConversationClearParams,
+  ConversationEnsureParams,
+  ConversationHistoryParams,
+  ConversationManifestParams,
+  ConversationOperationParams,
+  ConversationPreparationEvidenceParams,
+  ConversationReadParams,
+  ConversationRecipientParams,
+  ConversationSwitchParams,
+  ConversationTrustParams
+} from './conversation-params'
 import {
   AttachParams as AttachParamsOfEmulatorParams,
   AxParams,
@@ -907,6 +937,33 @@ export const RPC_PARAMS_BY_METHOD = {
   'connector.send': ConnectorSend,
   'connector.start': ConnectorStart,
   'connector.watch': ConnectorWatch,
+  'conversation.advance': ConversationAdvanceParams,
+  'conversation.approveEvidenceTrust': ConversationTrustParams,
+  'conversation.approveManifest': ConversationManifestParams,
+  'conversation.approveRecipient': ConversationRecipientParams,
+  'conversation.archiveStatus': ConversationArchiveStatusParams,
+  'conversation.cancel': ConversationCancelParams,
+  'conversation.cleanupArchive': ConversationArchiveCleanupParams,
+  'conversation.clear': ConversationClearParams,
+  'conversation.clearAdvance': ConversationAdvanceParams,
+  'conversation.clearCancel': ConversationAdvanceParams,
+  'conversation.clearRead': ConversationOperationParams,
+  'conversation.deleteArchive': ConversationArchiveDeleteParams,
+  'conversation.ensure': ConversationEnsureParams,
+  'conversation.evidenceTrust': ConversationOperationParams,
+  'conversation.history': ConversationHistoryParams,
+  'conversation.preparation': ConversationOperationParams,
+  'conversation.preparationEvidence': ConversationPreparationEvidenceParams,
+  'conversation.promoteSurface': ConversationPromoteSurfaceParams,
+  'conversation.read': ConversationReadParams,
+  'conversation.recoverTransfer': ConversationTransferRecoveryParams,
+  'conversation.selectAgent': ConversationSelectAgentParams,
+  'conversation.setSurfaceVisibility': ConversationSurfaceVisibilityParams,
+  'conversation.surfaceRead': ConversationSurfaceReadParams,
+  'conversation.switch': ConversationSwitchParams,
+  'conversation.transferIntentions': ConversationTransferIntentionsParams,
+  'conversation.unwatch': ConversationUnwatchParams,
+  'conversation.watch': ConversationSurfaceReadParams,
   'desktopBrowserBridge.attach': DesktopBrowserBridgeAttachParams,
   'desktopBrowserBridge.result': DesktopBrowserBridgeResultParams,
   'diagnostics.memory': null,

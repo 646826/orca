@@ -1,3 +1,4 @@
+import { recordWorkspaceWatchEvents } from '../runtime/workspace-watch-observation'
 import * as path from 'node:path'
 import type { Event as WatcherEvent } from '@parcel/watcher'
 import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
@@ -23,12 +24,16 @@ export function observeLocalWatcherEvents(observer: LocalWatcherEventObserver): 
 }
 
 export function notifyLocalWatcherEvents(root: WatchedRoot, events: readonly WatcherEvent[]): void {
+  if (events.length > 0) {
+    recordWorkspaceWatchEvents(root, false)
+  }
   for (const observer of observers) {
     observer.onEvents(root, events)
   }
 }
 
 export function notifyLocalWatcherInterrupted(root: WatchedRoot): void {
+  recordWorkspaceWatchEvents(root, true)
   for (const observer of observers) {
     observer.onInterrupted(root)
   }

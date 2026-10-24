@@ -34,7 +34,12 @@ async function clipboardImageSaveArgs(
       ok: true,
       args: {
         forNativeChatDraft: true,
-        ...(owner.structuredSessionId ? { forStructuredChat: true } : {})
+        ...(owner.structuredSessionId
+          ? {
+              forStructuredChat: true,
+              localAttachmentOwner: { sessionId: owner.structuredSessionId }
+            }
+          : {})
       }
     }
   }

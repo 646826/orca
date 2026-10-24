@@ -465,7 +465,7 @@ describe('the desktop launches replay-safely', () => {
 
     await launch(host)
 
-    expect(host.openAgentSessionRecordStore).toHaveBeenCalled()
+    expect(host.openAgentLaunchLedger).toHaveBeenCalled()
     expect(host.ensureStructuredAgentSessionHost).not.toHaveBeenCalled()
   })
 })

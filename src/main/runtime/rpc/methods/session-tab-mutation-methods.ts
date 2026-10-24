@@ -1,3 +1,7 @@
+import {
+  conversationTabMutationAdmission,
+  requireConversationTabMutationCapability
+} from './conversation-tab-gate'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { defineMethod } from '../core'
@@ -6,6 +10,7 @@ import {
   translateProjectedSessionTabMove
 } from './session-tab-browser-placement-projection'
 import { projectSessionTabsForClient } from './session-tabs-inventory'
+import { activateConversationSessionTab } from './session-tab-conversation-activation'
 import {
   ActivateTab,
   MoveTab,
@@ -18,13 +23,20 @@ export const SESSION_TAB_MUTATION_METHODS = [
     name: 'session.tabs.activate',
     permission: 'workspace',
     params: ActivateTab,
-    handler: async (params, { runtime, clientKind, pairedDeviceId, clientCapabilities }) => {
+    handler: async (params, context) => {
+      const { runtime, clientKind, pairedDeviceId, clientCapabilities } = context
+      const conversation = await activateConversationSessionTab(params, context)
+      if (conversation) {
+        return conversation
+      }
       if (clientKind) {
-        const visible = projectSessionTabsForClient(
-          await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId),
-          clientKind,
-          clientCapabilities
+        const raw = await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId)
+        await requireConversationTabMutationCapability(
+          { runtime, clientKind, clientCapabilities },
+          raw,
+          params.tabId
         )
+        const visible = projectSessionTabsForClient(raw, clientKind, clientCapabilities)
         assertProjectedSessionTabVisible(visible, params.tabId)
       }
       const result = await runtime.activateMobileSessionTab(
@@ -32,6 +44,11 @@ export const SESSION_TAB_MUTATION_METHODS = [
         params.tabId,
         params.leafId,
         {
+          assertAgentSessionMutation: await conversationTabMutationAdmission({
+            runtime,
+            clientKind,
+            clientCapabilities
+          }),
           notifyClients: params.notifyClients !== false,
           clientNavigationId: pairedDeviceId,
           ...(params.intent ? { intent: params.intent } : {}),
@@ -57,29 +74,51 @@ export const SESSION_TAB_MUTATION_METHODS = [
       let translated: Parameters<typeof translateProjectedSessionTabMove>[2] = params
       if (clientKind) {
         const raw = await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId)
+        await requireConversationTabMutationCapability(
+          { runtime, clientKind, clientCapabilities },
+          raw,
+          params.tabId
+        )
         const projected = projectSessionTabsForClient(raw, clientKind, clientCapabilities)
         translated = translateProjectedSessionTabMove(raw, projected, params)
       }
+      const assertAgentSessionMutation = await conversationTabMutationAdmission({
+        runtime,
+        clientKind,
+        clientCapabilities
+      })
       const base = { tabId: translated.tabId, targetGroupId: translated.targetGroupId }
       if (translated.kind === 'reorder') {
-        return runtime.moveMobileSessionTab(params.worktree, {
-          ...base,
-          kind: 'reorder',
-          tabOrder: translated.tabOrder
-        })
+        return runtime.moveMobileSessionTab(
+          params.worktree,
+          {
+            ...base,
+            kind: 'reorder',
+            tabOrder: translated.tabOrder
+          },
+          assertAgentSessionMutation
+        )
       }
       if (translated.kind === 'split') {
-        return runtime.moveMobileSessionTab(params.worktree, {
-          ...base,
-          kind: 'split',
-          splitDirection: translated.splitDirection
-        })
+        return runtime.moveMobileSessionTab(
+          params.worktree,
+          {
+            ...base,
+            kind: 'split',
+            splitDirection: translated.splitDirection
+          },
+          assertAgentSessionMutation
+        )
       }
-      return runtime.moveMobileSessionTab(params.worktree, {
-        ...base,
-        kind: 'move-to-group',
-        index: translated.index
-      })
+      return runtime.moveMobileSessionTab(
+        params.worktree,
+        {
+          ...base,
+          kind: 'move-to-group',
+          index: translated.index
+        },
+        assertAgentSessionMutation
+      )
     }
   }),
   defineMethod({
@@ -95,14 +134,18 @@ export const SESSION_TAB_MUTATION_METHODS = [
         clientKind,
         clientCapabilities
       )
-      return runtime.updateMobileSessionPaneLayout(params.worktree, {
-        tabId: params.tabId,
-        root: params.root,
-        expandedLeafId: params.expandedLeafId ?? null,
-        chatLeafId: params.chatLeafId,
-        titlesByLeafId: params.titlesByLeafId,
-        renamedLeafIds: params.renamedLeafIds
-      })
+      return runtime.updateMobileSessionPaneLayout(
+        params.worktree,
+        {
+          tabId: params.tabId,
+          root: params.root,
+          expandedLeafId: params.expandedLeafId ?? null,
+          chatLeafId: params.chatLeafId,
+          titlesByLeafId: params.titlesByLeafId,
+          renamedLeafIds: params.renamedLeafIds
+        },
+        await conversationTabMutationAdmission({ runtime, clientKind, clientCapabilities })
+      )
     }
   }),
   defineMethod({
@@ -118,13 +161,17 @@ export const SESSION_TAB_MUTATION_METHODS = [
         clientKind,
         clientCapabilities
       )
-      return runtime.setMobileSessionTabProps(params.worktree, {
-        tabId: params.tabId,
-        ...(params.color !== undefined ? { color: params.color } : {}),
-        ...(params.isPinned !== undefined ? { isPinned: params.isPinned } : {}),
-        ...(params.viewMode !== undefined ? { viewMode: params.viewMode } : {}),
-        ...(params.customTitle !== undefined ? { customTitle: params.customTitle } : {})
-      })
+      return runtime.setMobileSessionTabProps(
+        params.worktree,
+        {
+          tabId: params.tabId,
+          ...(params.color !== undefined ? { color: params.color } : {}),
+          ...(params.isPinned !== undefined ? { isPinned: params.isPinned } : {}),
+          ...(params.viewMode !== undefined ? { viewMode: params.viewMode } : {}),
+          ...(params.customTitle !== undefined ? { customTitle: params.customTitle } : {})
+        },
+        await conversationTabMutationAdmission({ runtime, clientKind, clientCapabilities })
+      )
     }
   })
 ]
@@ -142,10 +189,12 @@ async function assertVisibleMutationTab(
   if (!clientKind) {
     return
   }
-  const visible = projectSessionTabsForClient(
-    await runtime.listMobileSessionTabs(worktree, pairedDeviceId),
-    clientKind,
-    clientCapabilities
+  const raw = await runtime.listMobileSessionTabs(worktree, pairedDeviceId)
+  await requireConversationTabMutationCapability(
+    { runtime, clientKind, clientCapabilities },
+    raw,
+    tabId
   )
+  const visible = projectSessionTabsForClient(raw, clientKind, clientCapabilities)
   assertProjectedSessionTabVisible(visible, tabId)
 }

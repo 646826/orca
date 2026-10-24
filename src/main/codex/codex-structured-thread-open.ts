@@ -43,6 +43,12 @@ function shellEnvironmentSetConfig(
 export async function openCodexThread(
   connection: Pick<CodexAppServerConnection, 'request'>,
   launch: {
+    dynamicTools?: readonly {
+      type: 'function'
+      name: string
+      description: string
+      inputSchema: unknown
+    }[]
     cwd: string
     resumeThreadId: string | null
     supersedeIfUnsaved?: boolean
@@ -67,7 +73,11 @@ export async function openCodexThread(
     throwIfSignalAborted(signal)
     return connection.request(
       'thread/start',
-      { ...threadSettings, ...(launch.model ? { model: launch.model } : {}) },
+      {
+        ...threadSettings,
+        ...(launch.model ? { model: launch.model } : {}),
+        ...(launch.dynamicTools ? { dynamicTools: launch.dynamicTools } : {})
+      },
       { timeoutMs }
     )
   }

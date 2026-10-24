@@ -12,9 +12,10 @@ import { createWorkspaceSourceResolver } from './scripts/workspace-source-export
 const nodeRuntimeInclude = process.versions.bun ? getNodeRuntimeInclude() : []
 const balancedShards = process.env.ORCA_BALANCE_UNIT_SHARDS === '1'
 const measurementFile = 'src/main/foreign-sqlite-readers/foreign-sqlite-reader-event-loop.test.ts'
+const conversationMeasurementFile = 'config/scripts/conversation-context-benchmark-loop.test.mjs'
 const paletteMeasurementFile =
   'src/renderer/src/lib/palette-match/palette-match-performance.test.ts'
-const measurementFiles = [measurementFile, paletteMeasurementFile]
+const measurementFiles = [measurementFile, conversationMeasurementFile, paletteMeasurementFile]
 const transforms = {
   plugins: [
     {
@@ -107,7 +108,7 @@ const projects = [
     test: {
       ...nodeProject.test,
       name: 'node-measurement',
-      include: [measurementFile],
+      include: [measurementFile, conversationMeasurementFile],
       exclude: testOptions.exclude,
       maxWorkers: 1,
       sequence: { groupOrder: 2 }

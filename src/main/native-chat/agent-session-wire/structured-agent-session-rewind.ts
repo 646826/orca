@@ -54,6 +54,7 @@ export async function rewindStructuredAgentSession(
       agents: context.deps.agents,
       logger: context.deps.logger,
       callerKey: caller.callerKey,
+      conversationMutationSupported: caller.conversationMutationSupported,
       envelope: params.envelope,
       // A provider's own rewind needs it running, so an agent at rest is started first.
       prepareSession: rewindsByFork
@@ -220,7 +221,7 @@ export async function rewindStructuredAgentSession(
     context,
     caller.callerKey,
     params.envelope,
-    operation,
+    { ...operation, conversationMutationSupported: caller.conversationMutationSupported },
     run,
     {
       needsAgent: () => !rewindsByFork,

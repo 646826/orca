@@ -3,7 +3,10 @@
 
 import type { AgentSessionResumeTrigger } from '../../../shared/agent-session-resume-marker'
 import type { createInterruptedContinuation } from './structured-agent-session-interrupted-continuation'
-import type { StructuredAgentSessionContinuationOutcome } from './structured-agent-session-restart-continuation'
+import type {
+  StructuredAgentSessionContinuationOutcome,
+  StructuredAgentSessionContinuationAdmission
+} from './structured-agent-session-restart-continuation'
 import type { StructuredAgentSessionResumeOutcome } from './structured-agent-session-restart-resume-runner'
 import type {
   StructuredAgentSessionRestartAudience,
@@ -29,7 +32,8 @@ export type StructuredAgentSessionRestartResume = {
   continueAfterRestart: (
     sessionIds: readonly string[] | undefined,
     owner: string,
-    audience?: StructuredAgentSessionRestartAudience
+    audience?: StructuredAgentSessionRestartAudience,
+    admission?: StructuredAgentSessionContinuationAdmission
   ) => Promise<{
     resumed: StructuredAgentSessionResumeOutcome[]
     continued: StructuredAgentSessionContinuationOutcome[]
@@ -42,7 +46,8 @@ export type StructuredAgentSessionRestartResume = {
    *  newer Orca's stay). An audience limits either to the agents it sees. */
   dismiss: (
     sessionIds?: readonly string[],
-    audience?: StructuredAgentSessionRestartAudience
+    audience?: StructuredAgentSessionRestartAudience,
+    assertMutationSupported?: (sessionId: string) => void
   ) => Promise<number>
   /** The chat's agent proved a start: its offer ends unless the start is a resume's own. */
   onAgentStarted: (sessionId: string) => void

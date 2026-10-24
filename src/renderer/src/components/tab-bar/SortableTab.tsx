@@ -76,6 +76,8 @@ export type SortableTabProps = {
   /** Toggle the tab between terminal and native chat view. */
   onToggleViewMode?: () => void
   canSplitTerminal?: boolean
+  canSwitchSessionSurface?: boolean
+  canEditAppearance?: boolean
   /** Set only for a native chat tab. */
   nativeChat?: NativeChatTabSession
   /** A native chat whose generated name failed, unless the user named the tab. */
@@ -110,6 +112,8 @@ export default function SortableTab({
   isChatView = false,
   onToggleViewMode,
   canSplitTerminal = true,
+  canSwitchSessionSurface = true,
+  canEditAppearance = true,
   nativeChat,
   namingFailure
 }: SortableTabProps): React.JSX.Element {
@@ -154,6 +158,7 @@ export default function SortableTab({
     cancelRename,
     setRenameInputElement
   } = useSortableTabRename({
+    enabled: canEditAppearance,
     tabId: tab.id,
     title: tab.title,
     customTitle: tab.customTitle,
@@ -212,18 +217,8 @@ export default function SortableTab({
         e.stopPropagation()
         handleRenameOpen()
       }}
-      onPointerDown={(e) => {
-        onTabPointerDown(
-          e,
-          dragListeners?.onPointerDown as ((event: React.PointerEvent<Element>) => void) | undefined
-        )
-      }}
-      onMouseDown={(e) => {
-        // Why: block middle-click auto-scroll; don't close here — removing the element pre-mouseup triggers a Linux X11 paste.
-        if (e.button === 1) {
-          e.preventDefault()
-        }
-      }}
+      onPointerDown={(e) => onTabPointerDown(e, (event) => dragListeners?.onPointerDown?.(event))}
+      onMouseDown={preventMiddleButtonDefault}
       onMouseUp={preventMiddleButtonDefault}
       onAuxClick={(e) => {
         if (isEditing) {
@@ -430,6 +425,8 @@ export default function SortableTab({
         isChatView={isChatView}
         onToggleViewMode={onToggleViewMode}
         canSplitTerminal={canSplitTerminal}
+        canSwitchSessionSurface={canSwitchSessionSurface}
+        canEditAppearance={canEditAppearance}
         nativeChat={nativeChat}
       />
       {naming ? <NativeChatNamingFailedDialog naming={naming} chatName={displayTitle} /> : null}

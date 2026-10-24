@@ -1,3 +1,4 @@
+import type { ConversationOriginCorrelation } from '../native-chat/conversations/conversation-origin-correlation'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
@@ -44,11 +45,13 @@ export type AcpStructuredSessionAdapterDeps = {
     producer?: StructuredAgentSessionChildWorkProducer
   ) => void
   onDispatchSettledLate?: (
-    settlement: { sessionId: string; clientMessageId: string } & (
-      | { providerIdentity: AgentJournalItemIdentity }
-      | ({ state: 'rejected' } & AgentJournalDispatchRejection)
-      | { state: 'unknown'; reason: string }
-    )
+    settlement:
+      | ConversationOriginCorrelation
+      | ({ sessionId: string; clientMessageId: string } & (
+          | { providerIdentity: AgentJournalItemIdentity; originCorrelation?: 'exact' }
+          | ({ state: 'rejected' } & AgentJournalDispatchRejection)
+          | { state: 'unknown'; reason: string }
+        ))
   ) => void
   logger?: StructuredAgentSessionLogger
   now?: () => number

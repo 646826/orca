@@ -50,7 +50,11 @@ import {
 
 export const MAX_JOURNAL_APPLIED_SETTLEMENT_IDS = 4_096
 
+export type JournalReplayQueries = { latestContextClearSequence: () => number }
+
 export type JournalReducerState = {
+  /** Private replay storage acceleration; never supplied by a renderer or serialized. */
+  replayQueries?: JournalReplayQueries
   sessionId: string
   epoch: string
   lastSequence: number
@@ -58,6 +62,8 @@ export type JournalReducerState = {
   /** Lowest sequence still individually replayable; rows below it were compacted. */
   oldestSequence: number
   highestFence: number
+  /** Fence of the greatest-sequence row, distinct from the maximum across a multi-row append. */
+  lastRowFence: number
   items: Map<string, AgentJournalRenderItem>
   /** Each item's execution provenance (`JournalItemRow.ownerFence`): the generation whose work it
    *  is, which decides whether it is current. */
@@ -105,6 +111,7 @@ export function createJournalReducerState(sessionId: string, epoch: string): Jou
     lastActivityAt: 0,
     oldestSequence: 1,
     highestFence: 0,
+    lastRowFence: 0,
     items: new Map(),
     itemFences: new Map(),
     itemExecutionOwners: new Map(),
@@ -136,6 +143,9 @@ export function applyJournalRow(
 }
 
 function applyJournalRowFacts(state: JournalReducerState, row: JournalRow, savedAt: number): void {
+  if (row.seq >= state.lastSequence) {
+    state.lastRowFence = row.fence
+  }
   state.lastSequence = Math.max(state.lastSequence, row.seq)
   state.highestFence = Math.max(state.highestFence, row.fence)
   if (row.kind === 'epoch') {
@@ -280,7 +290,9 @@ export function journalEchoClaimant(
     return null
   }
   const fingerprint = agentSessionSendBodyFingerprint(state.sessionId, body)
-  const contextSequence = latestAgentSessionContextClearSequence(state.items.values())
+  const contextSequence =
+    state.replayQueries?.latestContextClearSequence() ??
+    latestAgentSessionContextClearSequence(state.items.values())
   // Exact payload plus queue order preserves repeated identical sends one-for-one.
   // A submission an echo may not claim is one that says the message never reached
   // the provider, so an item resembling it is somebody else's. That is `rejected`

@@ -134,7 +134,9 @@ describe('clipboard:saveImageAsTempFile for a local structured chat', () => {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the image save path never reads the store.
       registerClipboardHandlers({} as never, { localChatAttachmentStore: async () => store })
 
+      const write = vi.spyOn(store, 'storeFile')
       const saved = await saveHandler()(event, {
+        localAttachmentOwner: { sessionId: 'founder' },
         forNativeChatDraft: true,
         forStructuredChat: true
       })
@@ -144,6 +146,9 @@ describe('clipboard:saveImageAsTempFile for a local structured chat', () => {
           /[\\/][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}[\\/]orca-paste-.+\.png$/
         )
       )
+      expect(write).toHaveBeenCalledWith(expect.any(String), expect.any(Buffer), {
+        sessionId: 'founder'
+      })
       expect(String(saved).startsWith(root)).toBe(true)
       expect(await readFile(String(saved), 'utf8')).toBe('png')
       expect(mocks.callRuntimeEnvironment).not.toHaveBeenCalled()

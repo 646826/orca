@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto'
+import type { OrcaRuntimeWithApplyMobileSessionTabNavigation as MobileSessionNavigation } from '../session-lifecycle/projection/apply-mobile-session-tab-navigation'
 import type { OrcaRuntimeWithGetTerminalInteractiveWait as GetTerminalInteractiveWaitMethods } from '../terminal/wait/terminal-interactive-wait'
 import { OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal } from './pty-backed-session-publication'
 import { getRepoIdFromWorktreeId } from '../../../shared/worktree/id'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 import { hasHostAuthoritativeTerminalMembership } from '../../persistence/terminal-topology/terminal-topology-membership'
 import type {
+  RuntimeMobileSessionTabsResult,
   RuntimeMobileSessionTabsSnapshot,
   RuntimeSyncedLeaf
 } from '../../../shared/runtime-types'
@@ -15,6 +18,50 @@ export abstract class OrcaRuntimeWithTouchMobileSessionTabsForWorktree extends O
   abstract getTerminalWorktreeIdForPaneKey(
     ...args: Parameters<GetTerminalInteractiveWaitMethods['getTerminalWorktreeIdForPaneKey']>
   ): ReturnType<GetTerminalInteractiveWaitMethods['getTerminalWorktreeIdForPaneKey']>
+
+  protected abstract applyMobileSessionTabNavigation(
+    ...args: Parameters<MobileSessionNavigation['applyMobileSessionTabNavigation']>
+  ): ReturnType<MobileSessionNavigation['applyMobileSessionTabNavigation']>
+
+  /** The RPC boundary supplies host-validated durable surfaces, never a client snapshot. */
+  activateProjectedConversationSessionTab(
+    snapshot: RuntimeMobileSessionTabsResult,
+    tabId: string,
+    clientNavigationId?: string
+  ): RuntimeMobileSessionTabsResult {
+    if (!snapshot.tabs.some((tab) => tab.type === 'conversation' && tab.id === tabId)) {
+      throw new Error('tab_not_found')
+    }
+    return this.applyMobileSessionTabNavigation(snapshot, tabId, 'caller', clientNavigationId)
+  }
+
+  /** Reapply the caller's selection after durable rows are added to an already-versioned reply. */
+  projectConversationSessionTabNavigation(
+    snapshot: RuntimeMobileSessionTabsResult,
+    clientNavigationId: string
+  ): RuntimeMobileSessionTabsResult {
+    return {
+      ...this.clientSessionTabSelections.project(snapshot, clientNavigationId),
+      publicationEpoch: snapshot.publicationEpoch,
+      snapshotVersion: snapshot.snapshotVersion
+    }
+  }
+
+  /** A durable aggregate can be the only surface in a workspace. Native rows remain separate. */
+  publishConversationInventory(worktreeId: string): void {
+    if (!this.mobileSessionTabsByWorktree.has(worktreeId)) {
+      this.storeMobileSessionSnapshot(worktreeId, {
+        worktree: worktreeId,
+        publicationEpoch: `conversation:${randomUUID()}`,
+        snapshotVersion: 0,
+        activeGroupId: null,
+        activeTabId: null,
+        activeTabType: null,
+        tabs: []
+      })
+    }
+    this.touchMobileSessionTabsForWorktree(worktreeId, { immediate: true })
+  }
 
   /** Bump the snapshot version and emit, coalesced unless `immediate`.
    *  Why the bump: clients gate mirrored snapshots on a strictly increasing

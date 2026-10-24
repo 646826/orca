@@ -93,14 +93,19 @@ describe('layout.apply', () => {
     }
     const applyLayoutCommand = vi.fn(async () => ({ ok: true, result: {} }))
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the handler calls only applyLayoutCommand.
-    const runtime = { applyLayoutCommand } as unknown as OrcaRuntimeService
+    const runtime = {
+      applyLayoutCommand,
+      openAgentSessionRecordStore: async () => ({
+        conversations: { surfaces: { readByTab: () => null } }
+      })
+    } as unknown as OrcaRuntimeService
     const newLeafId = '33333333-3333-4333-8333-333333333333'
 
     const params = apply.params?.parse({ command: { ...SPLIT, newLeafId, groupId: 'window-g' } })
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the handler reads only runtime from its context.
     await apply.handler(params, { runtime } as RpcContext)
 
-    expect(applyLayoutCommand).toHaveBeenCalledWith({ ...SPLIT, newLeafId })
+    expect(applyLayoutCommand).toHaveBeenCalledWith({ ...SPLIT, newLeafId }, expect.any(Function))
     expect(apply.params?.parse({ command: { ...SPLIT, id: 'window-id' } })).toEqual({
       command: SPLIT
     })

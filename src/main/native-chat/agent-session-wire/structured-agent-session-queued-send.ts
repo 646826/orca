@@ -4,7 +4,11 @@
 import type { AgentSessionSendResult } from '../../../shared/agent-session-wire'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
-import { maybeQueueStructuredAgentSessionSend } from './structured-agent-session-queued-messages'
+import {
+  maybeQueueStructuredAgentSessionSend,
+  conversationQueueHeld
+} from './structured-agent-session-queued-messages'
+import { refuse } from '../../../shared/agent-session-wire-refusals'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
 
 export async function runQueueableStructuredAgentSessionSend(
@@ -27,6 +31,19 @@ export async function runQueueableStructuredAgentSessionSend(
   const queued = await maybeQueueStructuredAgentSessionSend(context, ctx, params)
   if (queued) {
     return queued
+  }
+  if (
+    conversationQueueHeld(context.deps.store.conversations.route(ctx.sessionId)) &&
+    !ctx.journal.submission(params.envelope.clientOperationId)
+  ) {
+    return {
+      ok: false,
+      refusal: refuse(
+        'agent_session_operation_invalid',
+        { reason: 'conversationSwitchInFlight' },
+        'This client cannot queue this message during an agent switch.'
+      )
+    }
   }
   return immediate()
 }

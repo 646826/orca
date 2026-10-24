@@ -8,7 +8,12 @@ import type {
   TerminalSurface
 } from './state'
 import { toWebTerminalSurfaceTabId } from '../../../../shared/terminal-surface-id'
-import { clearHostSessionTabIdMappings, setHostSessionTabIdMapping } from './tracking-mappings'
+import {
+  clearHostSessionTabIdMappings,
+  hostSessionTabIdsByLocalTabForWorktree,
+  resolveHostSessionGroupIdForWebSessionTab,
+  setHostSessionTabIdMapping
+} from './tracking-mappings'
 import { isWebSessionBrowserPlacementGroupReserved } from '../web-session-browser-placement'
 import { resolveWebSessionReorderedOrder } from '../web-session-reorder-intent'
 import { mapHostRecentTabIds } from './tab-group-layout-tree'
@@ -58,8 +63,19 @@ export function updateHostSessionTabIdMappings(args: {
   editorTabs: readonly MirroredEditorTab[]
   agentTabs: readonly MirroredAgentTab[]
   hostGroupIdByTabId: ReadonlyMap<string, string>
+  retainedChatTabIds: ReadonlySet<string>
 }): void {
+  const retained = [...hostSessionTabIdsByLocalTabForWorktree(args.environmentId, args.worktreeId)]
+    .filter(([tabId]) => args.retainedChatTabIds.has(tabId))
+    .map(([tabId, hostTabId]) => ({
+      tabId,
+      hostTabId,
+      groupId: resolveHostSessionGroupIdForWebSessionTab({ ...args, tabId }) ?? undefined
+    }))
   clearHostSessionTabIdMappings(args.environmentId, args.worktreeId)
+  for (const { tabId, hostTabId, groupId } of retained) {
+    setHostSessionTabIdMapping({ ...args, tabId }, hostTabId, groupId)
+  }
   const map = (tabId: string, hostTabId: string): void =>
     setHostSessionTabIdMapping(
       { ...args, tabId },

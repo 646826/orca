@@ -189,6 +189,9 @@ export function buildFullWorktreePurgeState(
     // Why: keyed by worktreeId; re-keyed on rename but missed by both removal paths (editor-undo / Cmd+Shift+T snapshots).
     recentlyClosedEditorTabsByWorktree: omitByWorktree(s.recentlyClosedEditorTabsByWorktree),
     recentlyClosedTerminalTabsByWorktree: omitByWorktree(s.recentlyClosedTerminalTabsByWorktree),
+    recentlyClosedConversationTabsByWorktree: omitByWorktree(
+      s.recentlyClosedConversationTabsByWorktree
+    ),
     recentlyClosedTabKindsByWorktree: omitByWorktree(s.recentlyClosedTabKindsByWorktree),
     // Top-level actives
     everActivatedWorktreeIds: nextEverActivatedWorktreeIds,

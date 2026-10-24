@@ -1,5 +1,6 @@
+import type { ConversationBeforeContextDispatch } from '../native-chat/conversations/conversation-delivery-transport'
 import { randomUUID } from 'node:crypto'
-import { isAbortSignalReason } from '../../shared/abort-signal-reason'
+import { isAbortSignalReason, throwIfSignalAborted } from '../../shared/abort-signal-reason'
 import {
   forgetRetiredWaiter,
   forgetWaiter,
@@ -117,6 +118,8 @@ export async function dispatchClaudeTurn(
     body: AgentJournalMessageItem
     requestedAt?: number
     sentUuid?: string
+    beforeContextDispatch?: ConversationBeforeContextDispatch
+    beforeNativeWrite?: () => Promise<void>
     signal?: AbortSignal
   },
   beforeDispatch?: () => Promise<void>
@@ -153,10 +156,15 @@ export async function dispatchClaudeTurn(
     parent_tool_use_id: null,
     session_id: session.providerSessionId
   }
-  const pending = { replay: beforeDispatch ? undefined : arm() }
-  const authorize = beforeDispatch
+  const needsAuthorization =
+    beforeDispatch || input.beforeContextDispatch || input.beforeNativeWrite || input.signal
+  const pending = { replay: needsAuthorization ? undefined : arm() }
+  const authorize = needsAuthorization
     ? async () => {
-        await beforeDispatch()
+        await beforeDispatch?.()
+        await input.beforeContextDispatch?.({ transport: 'claude', payload: message })
+        await input.beforeNativeWrite?.()
+        throwIfSignalAborted(input.signal)
         if (session.dispatchWaiters.length >= MAX_ACTIVE_DISPATCH_WAITERS) {
           throw claudeUnwrittenUserMessageError(new Error(DISPATCH_REJECTED_QUEUE_FULL))
         }
@@ -198,6 +206,9 @@ export async function dispatchClaudeTurn(
       if (uuid) {
         return {
           state: 'accepted',
+          ...(waiter.settledOriginCorrelation
+            ? { originCorrelation: waiter.settledOriginCorrelation }
+            : {}),
           providerIdentity: { provider: 'claude', sessionId: session.providerSessionId, uuid }
         }
       }

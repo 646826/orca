@@ -16,26 +16,38 @@ export function setStructuredAgentSessionTabVisibility(
         setSessionTabVisibility: (
           sessionId: string,
           visible: boolean,
-          tabId?: string
+          tabId?: string,
+          assertMutationSupported?: () => void
         ) => Promise<void>
       }
       onSessionTabHidden?: (sessionId: string) => void
     }
-    restartResume: { dismiss: (sessionIds: readonly string[]) => Promise<number> }
+    restartResume: {
+      dismiss: (
+        sessionIds: readonly string[],
+        audience?: undefined,
+        assertMutationSupported?: (sessionId: string) => void
+      ) => Promise<number>
+    }
   },
   sessionId: string,
   visible: boolean,
-  tabId?: string
+  tabId?: string,
+  assertMutationSupported?: () => void
 ): Promise<void> {
+  assertMutationSupported?.()
   if (!visible) {
-    void host.restartResume.dismiss([sessionId]).catch(() => {
+    const dismissed = assertMutationSupported
+      ? host.restartResume.dismiss([sessionId], undefined, assertMutationSupported)
+      : host.restartResume.dismiss([sessionId])
+    void dismissed.catch(() => {
       host.deps.logger.warn('forgetting recovery records on chat close failed', {
         scope: 'tab-close-recovery-dismiss',
         sessionId
       })
     })
   }
-  return host.deps.store.setSessionTabVisibility(sessionId, visible, tabId)
+  return host.deps.store.setSessionTabVisibility(sessionId, visible, tabId, assertMutationSupported)
 }
 
 export type StructuredAgentSessionTab = {
@@ -71,7 +83,11 @@ export function createStructuredAgentSessionTabSurface(
     deps: {
       store: Pick<
         AgentSessionRecordStore,
-        'getVisibleSessionTabIndex' | 'getSessionTabId' | 'showSessionTabs' | 'getRecord'
+        | 'getVisibleSessionTabIndex'
+        | 'getSessionTabId'
+        | 'showSessionTabs'
+        | 'getRecord'
+        | 'conversations'
       >
     }
   },
@@ -81,15 +97,22 @@ export function createStructuredAgentSessionTabSurface(
   // Restored chats that could not be opened. Each keeps its tab, whose read says why.
   const unopened = new Set<string>()
   return {
-    listSessionTabs: (): StructuredAgentSessionTab[] => [
-      ...listStructuredAgentSessionTabs(sessions),
-      ...[...unopened].flatMap((sessionId) => {
-        const record = sessions.has(sessionId) ? null : host.deps.store.getRecord(sessionId)
-        return record
-          ? [{ sessionId, workspaceId: record.location.workspaceId, agent: record.provider }]
-          : []
-      })
-    ],
+    listConversationSurfaces: (
+      scope: Parameters<AgentSessionRecordStore['conversations']['surfaces']['list']>[0]
+    ) => host.deps.store.conversations.surfaces.list(scope),
+    listSessionTabs: (): StructuredAgentSessionTab[] =>
+      [
+        ...listStructuredAgentSessionTabs(sessions),
+        ...[...unopened].flatMap((sessionId) => {
+          const record = sessions.has(sessionId) ? null : host.deps.store.getRecord(sessionId)
+          return record
+            ? [{ sessionId, workspaceId: record.location.workspaceId, agent: record.provider }]
+            : []
+        })
+      ].filter((tab) => {
+        const member = host.deps.store.conversations.membership(tab.sessionId)
+        return !member || !host.deps.store.conversations.surfaces.read(member.conversationId)
+      }),
     /** A restore target with a record whose open failed. */
     markUnopened: (sessionId: string): void => {
       unopened.add(sessionId)
@@ -104,9 +127,15 @@ export function createStructuredAgentSessionTabSurface(
       visible: boolean,
       tabId?: string,
       /** A close that may still put the tab back sends the hidden notice once it settles. */
-      options?: { deferHiddenNotice?: boolean }
+      options?: { deferHiddenNotice?: boolean; assertMutationSupported?: () => void }
     ): Promise<void> => {
-      await setStructuredAgentSessionTabVisibility(host, sessionId, visible, tabId)
+      await setStructuredAgentSessionTabVisibility(
+        host,
+        sessionId,
+        visible,
+        tabId,
+        options?.assertMutationSupported
+      )
       if (!visible) {
         unopened.delete(sessionId)
         if (!options?.deferHiddenNotice) {

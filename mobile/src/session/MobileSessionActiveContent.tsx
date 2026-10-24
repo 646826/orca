@@ -1,3 +1,4 @@
+import { MobileConversationView } from './MobileConversationView'
 import { Animated, View, Text, Pressable, ActivityIndicator } from 'react-native'
 import { saveTerminalTextScale } from '../storage/preferences'
 import { MobileBrowserPane } from '../browser/MobileBrowserPane'
@@ -116,6 +117,13 @@ export function MobileSessionActiveContent({
         </Pressable>
       </View>
     </View>
+  ) : controller.activeSessionTab?.type === 'conversation' ? (
+    <MobileConversationView
+      client={client}
+      hostId={hostId}
+      workspaceId={worktreeId}
+      tab={controller.activeSessionTab}
+    />
   ) : activeMarkdownTab ? (
     <View style={styles.markdownFrame}>
       <MarkdownReader

@@ -1,3 +1,4 @@
+import { NativeChatConversation } from './NativeChatConversation'
 import { memo, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { Tab, TabGroup } from '../../../../shared/tab-types'
@@ -10,10 +11,12 @@ import { RetainedPaneHost } from '../tab-group/RetainedPaneHost'
 import NativeChatView from './NativeChatView'
 import { isStructuredTab } from '../../../../shared/structured-agent-session-tab'
 
-type StructuredAgentSessionTab = Tab & {
-  contentType: 'agent-session'
-  agentSessionAgent: NonNullable<Tab['agentSessionAgent']>
-}
+type StructuredAgentSessionTab =
+  | (Tab & {
+      contentType: 'agent-session'
+      agentSessionAgent: NonNullable<Tab['agentSessionAgent']>
+    })
+  | (Tab & { contentType: 'conversation' })
 
 const EMPTY_UNIFIED_TABS: readonly Tab[] = []
 const EMPTY_GROUPS: readonly TabGroup[] = []
@@ -48,16 +51,27 @@ const StructuredAgentSessionOverlaySlot = memo(function StructuredAgentSessionOv
       data-structured-agent-session-overlay-tab-id={tab.id}
       onFocusOwningGroup={onFocusOwningGroup}
     >
-      <NativeChatView
-        mode="structured"
-        tabId={tab.id}
-        groupId={groupId}
-        sessionId={tab.entityId}
-        agent={tab.agentSessionAgent}
-        isVisible={isActive}
-        isFocusedGroup={isFocusedGroup}
-        target={target}
-      />
+      {tab.contentType === 'conversation' ? (
+        <NativeChatConversation
+          conversationId={tab.entityId}
+          tabId={tab.id}
+          groupId={groupId}
+          isVisible={isActive}
+          isFocusedGroup={isFocusedGroup}
+          target={target}
+        />
+      ) : (
+        <NativeChatView
+          mode="structured"
+          tabId={tab.id}
+          groupId={groupId}
+          sessionId={tab.entityId}
+          agent={tab.agentSessionAgent}
+          isVisible={isActive}
+          isFocusedGroup={isFocusedGroup}
+          target={target}
+        />
+      )}
     </RetainedPaneHost>
   )
 })
@@ -87,7 +101,11 @@ const StructuredAgentSessionPaneOverlayLayer = memo(
       [groups]
     )
     const structuredTabs = useMemo(
-      () => unifiedTabs.filter((tab): tab is StructuredAgentSessionTab => isStructuredTab(tab)),
+      () =>
+        unifiedTabs.filter(
+          (tab): tab is StructuredAgentSessionTab =>
+            tab.contentType === 'conversation' || isStructuredTab(tab)
+        ),
       [unifiedTabs]
     )
 

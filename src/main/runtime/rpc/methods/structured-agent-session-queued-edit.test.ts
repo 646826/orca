@@ -64,7 +64,7 @@ describe('queued edit methods', () => {
     async (method, params, name, hostOnly) => {
       expect(await call(method, params, STRUCTURED_CLIENT)).toMatchObject({ ok: true })
       expect(hostCalls[name]).toHaveBeenCalledWith(
-        { callerKey: 'trusted-local:runtime' },
+        { callerKey: 'trusted-local:runtime', conversationMutationSupported: false },
         { ...params, ...hostOnly }
       )
     }

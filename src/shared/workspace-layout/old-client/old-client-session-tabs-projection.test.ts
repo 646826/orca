@@ -406,3 +406,11 @@ describe('projectSessionTabs', () => {
     expect(resolveSessionTabRow(ws, `${api!.tabId!}::not-a-pane`)).toBeNull()
   })
 })
+
+it('does not present an aggregate as a provider session to legacy snapshot consumers', () => {
+  const { model } = build(testContext(), [
+    { type: 'openConversationTab', workspace: WS, conversationId: 'conversation', tabId: 'stable' }
+  ])
+  const projected = projectSessionTabs(WS, model.workspaces[WS]!, views(), noFacts, false)
+  expect(projected.tabs).toEqual([])
+})

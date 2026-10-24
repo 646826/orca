@@ -1,3 +1,10 @@
+import type { ConversationContextDispatchObserver } from './structured-conversation-context-dispatch'
+import { AgentSessionPreDispatchError } from './structured-agent-session-operation-settlement'
+import {
+  createConversationTransferNoWriteRecorder,
+  type ConversationNoUserTurnWriteReason
+} from '../conversations/conversation-transfer-no-write'
+import type { JournalOperationReceipt } from '../agent-session-journal/journal-row-writer'
 // Handing one accepted message to the provider: two commits around a provider call that runs
 // outside the session's serialize, so a send is accepted while the call is in flight.
 
@@ -33,6 +40,10 @@ import {
 } from './structured-agent-session-handing-over'
 
 export type AgentSessionHandoverContext = StructuredAgentSessionCommandHandoverContext & {
+  beforeDispatch?: () => Promise<void>
+  requireExactOrigin?: boolean
+  beforeContextDispatch?: ConversationContextDispatchObserver
+  prepareContextDispatch?: (signal?: AbortSignal) => Promise<void>
   acquireAborts?: Pick<StructuredAgentSessionAcquireAborts, 'begin'>
   deliveryOrder?: StructuredAgentSessionDeliveryOrder
   workChanged?: () => void
@@ -45,6 +56,11 @@ export type AgentSessionHandoverContext = StructuredAgentSessionCommandHandoverC
 export type StructuredAgentSessionPendingHandover = {
   dispatch: () => Promise<() => Promise<void>>
   release?: () => void
+}
+
+type HandoverDispatchResult = {
+  outcome: AgentSessionDispatchOutcome | null
+  noUserTurnWriteProofReason?: ConversationNoUserTurnWriteReason
 }
 
 /**
@@ -93,14 +109,25 @@ export async function beginSubmissionHandover(
   )
   const attempt = ctx.acquireAborts?.begin(ctx.sessionId, true)
   const queued = submission.queuedMessageId !== undefined
+  const noWrite = createConversationTransferNoWriteRecorder({
+    targetSessionId: ctx.sessionId,
+    targetSubmissionId: clientMessageId,
+    targetSubmissionSequence: submission.submittedSequence,
+    targetFingerprint: submission.payloadFingerprint,
+    runtimeFence: ctx.fence
+  })
   try {
-    await ctx.journal.resolveDispatch({
-      clientMessageId,
-      state: 'pending',
-      fence: ctx.fence,
-      turnScope,
-      ...(carried ? { carries: carried.covers } : {})
-    })
+    await ctx.journal.resolveDispatch(
+      {
+        clientMessageId,
+        state: 'pending',
+        fence: ctx.fence,
+        turnScope,
+        ...(carried ? { carries: carried.covers } : {})
+      },
+      undefined,
+      noWrite.handoverReceipt
+    )
   } catch (error) {
     released()
     release?.()
@@ -116,11 +143,14 @@ export async function beginSubmissionHandover(
       release?.()
     },
     dispatch: async () => {
-      let outcome: AgentSessionDispatchOutcome | null
+      let result: HandoverDispatchResult
       try {
         // Aborted before the call, Orca still held it: a queued card waits again.
-        outcome = attempt?.signal.aborted
-          ? cancelledDispatch(queued)
+        result = attempt?.signal.aborted
+          ? {
+              outcome: cancelledDispatch(queued),
+              noUserTurnWriteProofReason: 'aborted-before-call'
+            }
           : // A child gone since the row: its end settles the row, and nothing reaches the wire.
             stillCurrent()
             ? await dispatchSafely(
@@ -132,12 +162,20 @@ export async function beginSubmissionHandover(
                 queued,
                 attempt?.signal
               )
-            : null
+            : { outcome: null }
       } finally {
         attempt?.end()
       }
       return async () => {
-        await resolveHandover(ctx, clientMessageId, outcome)
+        const { outcome, noUserTurnWriteProofReason } = result
+        await resolveHandover(
+          ctx,
+          clientMessageId,
+          outcome,
+          noUserTurnWriteProofReason
+            ? noWrite.rejectionReceipt(noUserTurnWriteProofReason)
+            : undefined
+        )
         if (outcome?.state === 'accepted' || outcome?.state === 'admitted') {
           await ctx.recordRanOptions?.({
             message: submission.options,
@@ -152,7 +190,8 @@ export async function beginSubmissionHandover(
 async function resolveHandover(
   ctx: AgentSessionHandoverContext,
   clientMessageId: string,
-  outcome: AgentSessionDispatchOutcome | null
+  outcome: AgentSessionDispatchOutcome | null,
+  noWriteReceipt?: JournalOperationReceipt
 ): Promise<void> {
   // An admission needs no dispatch row: the submission is already pending.
   if (!outcome || outcome.state === 'admitted') {
@@ -165,6 +204,9 @@ async function resolveHandover(
             clientMessageId,
             state: 'accepted',
             providerIdentity: outcome.providerIdentity,
+            ...(outcome.originCorrelation === 'exact'
+              ? { originCorrelation: 'exact' as const }
+              : {}),
             fence: ctx.fence
           }
         : outcome.state === 'rejected'
@@ -176,7 +218,9 @@ async function resolveHandover(
               ...(outcome.answeredInTurn ? { answeredInTurn: outcome.answeredInTurn } : {}),
               fence: ctx.fence
             }
-          : { clientMessageId, state: 'unknown', reason: outcome.reason, fence: ctx.fence }
+          : { clientMessageId, state: 'unknown', reason: outcome.reason, fence: ctx.fence },
+      undefined,
+      outcome.state === 'rejected' ? noWriteReceipt : undefined
     )
   } catch (error) {
     // A failed resolution must not strand a pending row; an unknown result is
@@ -207,8 +251,13 @@ async function dispatchSafely(
   executionOptions: AgentSessionExecutionOptions | undefined,
   queued: boolean,
   signal?: AbortSignal
-): Promise<AgentSessionDispatchOutcome> {
+): Promise<HandoverDispatchResult> {
+  let completedNativeObservation = false
+  let adapterInvoked = false
   try {
+    await ctx.prepareContextDispatch?.(signal)
+    signal?.throwIfAborted()
+    adapterInvoked = true
     const outcome = await ctx.adapter.dispatch({
       sessionId: ctx.sessionId,
       clientMessageId,
@@ -217,26 +266,54 @@ async function dispatchSafely(
       ...(signal ? { signal } : {}),
       fence: ctx.fence,
       requestedAt,
+      beforeDispatch: ctx.beforeDispatch,
+      ...(ctx.requireExactOrigin ? { requireExactOrigin: true as const } : {}),
+      beforeContextDispatch: ctx.beforeContextDispatch
+        ? async (observation) => {
+            await ctx.beforeContextDispatch?.(observation, signal)
+            if (!signal?.aborted) {
+              completedNativeObservation = true
+            }
+          }
+        : undefined,
       onInputPreparation: ctx.recordRanOptions?.prepareInput,
       onExecutionSnapshot: ctx.recordRanOptions?.checkpoint
     })
     // The agent's own answer stands, aborted or not.
-    return outcome
+    return { outcome }
   } catch (error) {
-    // The signal reaches only an adapter's preparation, so its own reason proves nothing was written.
+    const guaranteedPreWrite =
+      !adapterInvoked || (ctx.beforeContextDispatch !== undefined && !completedNativeObservation)
+    if (error instanceof AgentSessionPreDispatchError) {
+      // Only the user-turn write is proven absent; provider option preparation may have run.
+      return {
+        outcome: cancelledDispatch(queued),
+        ...(guaranteedPreWrite
+          ? { noUserTurnWriteProofReason: 'pre-dispatch-refusal' as const }
+          : {})
+      }
+    }
+    // Exact signal identity preserves cancellation; an earlier native observation still vetoes proof.
     if (isAbortSignalReason(signal, error)) {
-      return cancelledDispatch(queued)
+      return {
+        outcome: cancelledDispatch(queued),
+        ...(guaranteedPreWrite ? { noUserTurnWriteProofReason: 'pre-write-abort' as const } : {})
+      }
     }
     if (isAgentSessionOptionRejectedError(error)) {
       return {
-        state: 'rejected',
-        ...agentSessionFailureWords(
-          agentSessionFailureFact('providerRejected', { detail: providerDiagnosticOf(error) }),
-          { surface: 'rejection' }
-        )
+        outcome: {
+          state: 'rejected',
+          ...agentSessionFailureWords(
+            agentSessionFailureFact('providerRejected', { detail: providerDiagnosticOf(error) }),
+            { surface: 'rejection' }
+          )
+        }
       }
     }
-    return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
+    return {
+      outcome: { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
+    }
   }
 }
 

@@ -1,3 +1,4 @@
+import { NATIVE_CONVERSATION_RUNTIME_CAPABILITY } from '../../../../shared/conversation-runtime-capabilities'
 // Who may see `agentSession.*` at all.
 //
 // Shared by every structured method file so one gate governs the whole surface: a client that does
@@ -138,6 +139,9 @@ export async function requireInstalledStructuredHost(
  *  clients (who answered a prompt), so a paired device is named by its proven device id instead. */
 export function structuredCallerFor(ctx: RpcContext): StructuredAgentSessionCaller {
   return {
+    conversationMutationSupported:
+      ctx.clientKind === undefined ||
+      !!ctx.clientCapabilities?.includes(NATIVE_CONVERSATION_RUNTIME_CAPABILITY),
     callerKey:
       ctx.caller?.kind === 'paired-device'
         ? rpcCallerOperationKey(ctx.caller)

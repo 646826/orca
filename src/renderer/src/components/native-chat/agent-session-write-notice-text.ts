@@ -82,6 +82,11 @@ const SENTENCES: Record<AgentSessionWriteNoticeSentence, () => string> = {
   unreachable: () => translate('components.native-chat.writeNotice.unreachable', COPY.unreachable),
   recordFailed: () =>
     translate('components.native-chat.writeNotice.recordFailed', COPY.recordFailed),
+  attachmentScopeUnverified: () =>
+    translate(
+      'components.native-chat.writeNotice.attachmentScopeUnverified',
+      'This attachment is not verified for this conversation.'
+    ),
   attachmentExpired: () =>
     translate('components.native-chat.writeNotice.attachmentExpired', COPY.attachmentExpired),
   reattachFile: () =>
@@ -99,6 +104,31 @@ const SENTENCES: Record<AgentSessionWriteNoticeSentence, () => string> = {
     translate('components.native-chat.writeNotice.commandRunning', COPY.commandRunning),
   waitForCommand: () =>
     translate('components.native-chat.writeNotice.waitForCommand', COPY.waitForCommand),
+  conversationSwitchRunning: () =>
+    translate(
+      'components.native-chat.writeNotice.conversationSwitchRunning',
+      'This conversation is switching agents.'
+    ),
+  waitForConversationSwitch: () =>
+    translate(
+      'components.native-chat.writeNotice.waitForConversationSwitch',
+      'Wait for the switch to finish or resolve its pending action.'
+    ),
+  conversationClearRunning: () =>
+    translate(
+      'components.native-chat.agentSwitch.clearRunning',
+      'This conversation is clearing context.'
+    ),
+  conversationClearRequired: () =>
+    translate(
+      'components.native-chat.agentSwitch.clearRequired',
+      'Use the conversation controls to clear context for every agent.'
+    ),
+  conversationParticipantParked: () =>
+    translate(
+      'components.native-chat.writeNotice.conversationParticipantParked',
+      'This agent is parked in the conversation.'
+    ),
   agentStarting: () =>
     translate('components.native-chat.writeNotice.agentStarting', COPY.agentStarting),
   waitForStart: () =>

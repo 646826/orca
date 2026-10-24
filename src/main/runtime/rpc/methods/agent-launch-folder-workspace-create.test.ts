@@ -164,7 +164,7 @@ describe('a phone asking for a folder workspace', () => {
     const runtime = folderRuntime()
 
     await expect(send(runtime)).rejects.toThrow(AGENT_LAUNCH_TARGET_FORBIDDEN_CODE)
-    expect(runtime.openAgentSessionRecordStore).not.toHaveBeenCalled()
+    expect(runtime.openAgentLaunchLedger).not.toHaveBeenCalled()
     expect(runtime.createFolderWorkspace).not.toHaveBeenCalled()
   })
 })

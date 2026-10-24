@@ -81,3 +81,9 @@ describe('mobile runtime client capabilities', () => {
     )
   })
 })
+
+it('advertises aggregate reads without aggregate mutation support', () => {
+  expect(MOBILE_RUNTIME_CLIENT_CAPABILITIES).toContain('agent-session.conversations.read.v1')
+  expect(MOBILE_RUNTIME_CLIENT_CAPABILITIES).not.toContain('agent-session.conversations.v1')
+  expect(MOBILE_RUNTIME_CLIENT_CAPABILITIES).not.toContain('agent-session.conversations.v2')
+})

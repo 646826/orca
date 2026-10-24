@@ -11,6 +11,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
+import {
   CodexAppServerRequestError,
   type CodexAppServerConnection,
   type CodexAppServerConnectionHandlers,
@@ -86,6 +90,7 @@ const MODEL = {
 }
 
 let root: string
+let admission: ProfileStateRuntimeAdmission
 let host: StructuredAgentSessionHost
 let fence: number
 let handlers: CodexAppServerConnectionHandlers | undefined
@@ -198,6 +203,7 @@ function verdictOf(submissions: readonly AgentJournalSubmission[], clientMessage
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-codex-turn-end-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   openWaits.turnIds.length = 0
   openWaits.ended.length = 0
   openWaits.began = null
@@ -299,6 +305,7 @@ afterEach(async () => {
   openWaits.releaseAll?.()
   vi.useRealTimers()
   await stopStructuredAgentSessionRuntime()
+  admission.release()
   await rm(root, { recursive: true, force: true })
 })
 

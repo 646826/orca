@@ -1,3 +1,9 @@
+import { captureQueuedDraftOrigin } from './queued-message-origin'
+import {
+  planJournalQueueChanges,
+  queueAdmissionEvidence,
+  assertQueueConsumableAdmission
+} from './journal-queue-admission'
 // The queue's one view and its writes. A card is folded from the chat's own rows
 // (`journal-queue-fold.ts`), so every change to one is a journal row on the journal's own lane,
 // committed with whatever else the action writes: the queue keeps no second copy to fall behind.
@@ -6,11 +12,7 @@
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionQueuedMessageUpdateResult } from '../../../shared/agent-session-wire'
 import type { AgentSessionExecutionOptions } from '../../../shared/agent-session-execution-options'
-import {
-  journalQueueRowBuilder,
-  type JournalQueueCardChange,
-  type JournalQueueRow
-} from './journal-queue-events'
+import type { JournalQueueCardChange, JournalQueueRow } from './journal-queue-events'
 import { LegacyQueuedCards } from './journal-queue-import'
 import { retainedQueueFacts } from './journal-queue-retention'
 import { composeJournalOperationReceipts, type JournalOperationReceipt } from './journal-row-writer'
@@ -86,6 +88,12 @@ export class JournalQueuedMessages {
     )
   }
 
+  evidence(
+    messageId: string
+  ): { sourceSessionId: string; admittedAt: number | null; card: QueuedMessageRow } | null {
+    return queueAdmissionEvidence(this.deps.database().db, this.sessionId, this.get(messageId))
+  }
+
   /** Attachments and the send receipt commit with the card. */
   insert(
     input: {
@@ -99,7 +107,13 @@ export class JournalQueuedMessages {
   ): Promise<QueuedMessageRow> {
     const { messageId, body } = input
     const claims: JournalOperationReceipt = {
-      write: (db) => this.deps.claimAttachments(db, body, input.requireAttachments === true),
+      write: (db, row) => {
+        this.deps.claimAttachments(db, body, input.requireAttachments === true)
+        if (!row) {
+          throw new Error('queued admission row missing')
+        }
+        captureQueuedDraftOrigin(db, { sessionId: this.sessionId, messageId, admittedAt: row.ts })
+      },
       committed: () => {}
     }
     return this.write(
@@ -202,21 +216,17 @@ export class JournalQueuedMessages {
 
   /** On the journal's lane: rows for these changes, each card an earlier build wrote moved into the
    *  journal first, its legacy row deleted in the same transaction (`journal-queue-import.ts`). */
-  plan(changes: readonly JournalQueueCardChange[]): JournalQueuePlan {
-    const rows: JournalQueuePlan['rows'] = []
-    const adopted: string[] = []
-    for (const { messageId, change } of changes) {
-      const own = this.deps.state().queue.cards.has(messageId) || adopted.includes(messageId)
-      const adoption = own ? null : this.legacy.adoption(messageId)
-      if (adoption) {
-        rows.push(journalQueueRowBuilder(this.deps.state, messageId, adoption))
-        adopted.push(messageId)
-      }
-      if (change) {
-        rows.push(journalQueueRowBuilder(this.deps.state, messageId, change))
-      }
-    }
-    return { rows, receipt: this.legacy.deletion(adopted) }
+  plan(
+    changes: readonly JournalQueueCardChange[],
+    authority?: { transferId: string }
+  ): JournalQueuePlan {
+    return planJournalQueueChanges(
+      this.deps.state,
+      this.legacy,
+      this.sessionId,
+      changes,
+      authority?.transferId
+    )
   }
 
   /** On the lane, before a hand-off's submission is written: the card is what the person acted
@@ -224,6 +234,7 @@ export class JournalQueuedMessages {
   assertConsumable(
     input: JournalSubmissionConsume & { consumedAs: string; fingerprint: string }
   ): void {
+    assertQueueConsumableAdmission(this.deps.database().db, this.sessionId, input.messageId)
     const card = this.get(input.messageId)
     const consumable =
       card !== null &&
@@ -325,8 +336,13 @@ export class JournalQueuedMessages {
           committed: () => {
             planned?.plan.receipt.committed()
             receipt?.committed()
+          },
+          rolledBack: () => {
+            planned?.plan.receipt.rolledBack?.()
+            receipt?.rolledBack?.()
           }
-        }
+        },
+        (rows) => rows.at(-1)
       )
       .then(() => {
         if (!planned) {

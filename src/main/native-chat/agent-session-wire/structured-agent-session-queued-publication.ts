@@ -10,6 +10,7 @@ import {
   type AgentSessionQueuePause
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import {
   queuePauseLiftOnItsWay,
   resumableQueuePause
@@ -36,11 +37,14 @@ export type QueuePublication = {
 export type QueueSendGate = (journal: AgentSessionJournal) => StructuredQueueGateInput
 
 export function structuredQueueSendGate(
-  host: StructuredAgentSessionCurrentWorkHost,
+  host: StructuredAgentSessionCurrentWorkHost & {
+    store: Pick<AgentSessionRecordStore, 'conversations'>
+  },
   sessionId: string
 ): QueueSendGate {
   return (journal) => ({
     record: host.store.getRecord(sessionId),
+    conversationRoute: host.store.conversations.route(sessionId),
     work: heldStructuredAgentSessionCurrentWork(
       host.store,
       sessionId,

@@ -1,6 +1,6 @@
 import type { prepareWebSessionTabsSnapshotBrowser } from './apply-preparation-browser'
 import { buildTerminalUnifiedTab } from './tab-builders'
-import { isAgentSessionTab } from './terminal-surfaces'
+import { isStructuredChatTab } from './terminal-surfaces'
 import { toWebTerminalSurfaceTabId } from '../../../../shared/terminal-surface-id'
 import {
   resolveWebSessionSiblingVisibleTabId,
@@ -90,7 +90,7 @@ export function prepareWebSessionTabsSnapshotUnified(
   const activeMirroredEditorTabId = activeMirroredEditor?.unifiedTab.id ?? null
   const activeHostAgent =
     snapshot.tabs
-      .filter(isAgentSessionTab)
+      .filter(isStructuredChatTab)
       .find((tab) => tab.id === snapshot.activeTabId || tab.isActive) ?? null
   const activeMirroredAgentTabId = activeHostAgent
     ? (mirroredAgentTabs.find((entry) => entry.hostTabId === activeHostAgent.id)?.unifiedTab.id ??
@@ -113,7 +113,7 @@ export function prepareWebSessionTabsSnapshotUnified(
       ? (mirroredEditorTabs.find((entry) => entry.hostTabId === navigationIntentTab.id) ?? null)
       : null
   const intentMirroredAgent =
-    navigationIntentTab?.type === 'agent-session'
+    navigationIntentTab && isStructuredChatTab(navigationIntentTab)
       ? (mirroredAgentTabs.find((entry) => entry.hostTabId === navigationIntentTab.id) ?? null)
       : null
   const currentActiveTerminalStillExists =
@@ -172,7 +172,9 @@ export function prepareWebSessionTabsSnapshotUnified(
   const currentVisibleStructuredTabId =
     currentVisibleUnifiedTabId &&
     nextUnifiedTabs?.find(
-      (tab) => tab.id === currentVisibleUnifiedTabId && tab.contentType === 'agent-session'
+      (tab) =>
+        tab.id === currentVisibleUnifiedTabId &&
+        (tab.contentType === 'agent-session' || tab.contentType === 'conversation')
     )
       ? currentVisibleUnifiedTabId
       : null
@@ -192,7 +194,7 @@ export function prepareWebSessionTabsSnapshotUnified(
       ? (intentMirroredBrowser?.unifiedTab.id ?? null)
       : navigationIntentTab?.type === 'terminal'
         ? intentTerminalId
-        : navigationIntentTab?.type === 'agent-session'
+        : navigationIntentTab && isStructuredChatTab(navigationIntentTab)
           ? (intentMirroredAgent?.unifiedTab.id ?? null)
           : navigationIntentTab?.type === 'markdown' || navigationIntentTab?.type === 'file'
             ? (intentMirroredEditor?.unifiedTab.id ?? null)
@@ -202,7 +204,7 @@ export function prepareWebSessionTabsSnapshotUnified(
     intentUnifiedTabId ??
     currentVisibleUnifiedTabId ??
     reservedEmptyPreviewFallbackTabId ??
-    (snapshot.activeTabType === 'agent-session'
+    (snapshot.activeTabType === 'agent-session' || snapshot.activeTabType === 'conversation'
       ? (activeMirroredAgentTabId ?? mirroredAgentUnifiedTabs[0]?.id ?? nextActiveTerminalId)
       : snapshot.activeTabType === 'browser'
         ? (activeMirroredBrowserTabId ??
@@ -231,7 +233,12 @@ export function prepareWebSessionTabsSnapshotUnified(
     browserTabs: mirroredBrowserTabs,
     editorTabs: mirroredEditorTabs,
     agentTabs: mirroredAgentTabs,
-    hostGroupIdByTabId
+    hostGroupIdByTabId,
+    retainedChatTabIds: new Set(
+      retainedUnifiedTabs
+        .filter((tab) => tab.contentType === 'agent-session' || tab.contentType === 'conversation')
+        .map((tab) => tab.id)
+    )
   })
 
   return {

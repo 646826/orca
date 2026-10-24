@@ -162,7 +162,10 @@ export abstract class OrcaRuntimeWithFileCommands extends OrcaRuntimeWithPreserv
     }
   })
 
-  abstract applyLayoutCommand(command: WindowLayoutCommand): Promise<LayoutApplyReply>
+  abstract applyLayoutCommand(
+    command: WindowLayoutCommand,
+    beforeMutation?: () => void
+  ): Promise<LayoutApplyReply>
 
   /** The group a file main opens lands in: the window's live one, else the saved view's. */
   protected abstract editorOpenGroupFor(worktreeId: string): string | undefined

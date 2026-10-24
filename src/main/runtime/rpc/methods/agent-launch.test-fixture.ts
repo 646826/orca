@@ -12,6 +12,7 @@ import { AgentLaunchPaneAlreadyLiveError } from '../../../../shared/agent-launch
 import type { RpcContext } from '../core'
 import { resolveRpcCallerIdentity } from '../rpc-caller-identity'
 import type { AgentSessionRecordStore } from '../../agent-session-record-store'
+import { AgentLaunchLedgerOwner, type AgentLaunchLedger } from '../../agent-launch-ledger'
 import type { TerminalWorkspaceLaunchScope } from '../../runtime-legacy-worker-terminal-recovery-types'
 import type {
   AgentLaunchTabPublished,
@@ -67,7 +68,17 @@ function reportPromptCarry(
 
 let launchRecordStore: AgentSessionRecordStore | null = null
 
-/** The ledger every stub's `openAgentSessionRecordStore` opens, as a process opens its one store. */
+const launchOwners = new WeakMap<AgentSessionRecordStore, AgentLaunchLedgerOwner>()
+function launchOwner(store: AgentSessionRecordStore): AgentLaunchLedgerOwner {
+  let owner = launchOwners.get(store)
+  if (!owner) {
+    owner = new AgentLaunchLedgerOwner(store)
+    launchOwners.set(store, owner)
+  }
+  return owner
+}
+
+/** All stub endpoints for one real store share its serialized ledger owner. */
 export function setAgentLaunchRecordStore(store: AgentSessionRecordStore | null): void {
   launchRecordStore = store
 }
@@ -161,11 +172,11 @@ export function runtimeStub(options: AgentLaunchRuntimeStubOptions = {}) {
       })
     ),
     ensureStructuredAgentSessionHost: vi.fn(async () => {}),
-    openAgentSessionRecordStore: vi.fn(async (): Promise<AgentSessionRecordStore> => {
+    openAgentLaunchLedger: vi.fn(async (): Promise<AgentLaunchLedger> => {
       if (!launchRecordStore) {
         throw new Error('agent_session_record_store_unavailable')
       }
-      return launchRecordStore
+      return launchOwner(launchRecordStore)
     }),
     waitForSetupTerminalCompletion,
     canPublishAgentLaunchTab: vi.fn(() => options.publishAgentLaunchTab !== undefined),
@@ -178,7 +189,13 @@ export function runtimeStub(options: AgentLaunchRuntimeStubOptions = {}) {
     ),
     // A pane this runtime created or adopted is running its process.
     hasLiveTerminalForPaneKey: vi.fn((paneKey: string) => handlesByPaneKey.has(paneKey)),
-    openedAgentSessionRecordStore: vi.fn((): AgentSessionRecordStore | null => launchRecordStore),
+    readAgentLaunchPublicationEligibility: vi.fn(
+      async (input: {
+        callerKey: string
+        operationId: string
+      }): Promise<'recorded' | 'unrecorded' | 'unknown'> =>
+        launchRecordStore ? launchOwner(launchRecordStore).publicationEligibility(input) : 'unknown'
+    ),
     closeTerminal: vi.fn(async (_handle: string) => ({}))
   }
 }

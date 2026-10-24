@@ -157,6 +157,12 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenuItem: function DropdownMenuItem(props: { children?: unknown }) {
     return { type: 'DropdownMenuItem', props }
   },
+  DropdownMenuRadioGroup: function DropdownMenuRadioGroup(props: { children?: unknown }) {
+    return { type: 'DropdownMenuRadioGroup', props }
+  },
+  DropdownMenuRadioItem: function DropdownMenuRadioItem(props: { children?: unknown }) {
+    return { type: 'DropdownMenuRadioItem', props }
+  },
   DropdownMenuShortcut: function DropdownMenuShortcut(props: { children?: unknown }) {
     return { type: 'DropdownMenuShortcut', props }
   },

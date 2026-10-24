@@ -73,6 +73,7 @@ function relayTransport() {
 describe.each(
   [
     ['accounts.subscribe', 'accounts.unsubscribe'],
+    ['conversation.watch', 'conversation.unwatch'],
     ['browser.screencast', 'browser.screencast.unsubscribe'],
     ['runtime.clientEvents.subscribe', 'runtime.clientEvents.unsubscribe'],
     ['notifications.subscribe', 'notifications.unsubscribe']

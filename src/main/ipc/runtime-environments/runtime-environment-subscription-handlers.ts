@@ -1,3 +1,4 @@
+import { openRemoteConversationInventory } from './remote-conversation-layout-admission'
 import { ipcMain } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { abortWhenRendererGone } from '../renderer-lifetime-abort'
@@ -77,6 +78,18 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(args: {
       const transportGeneration = getRuntimeEnvironmentTransportGeneration(environment.id)
       const transportIsCurrent = (): boolean =>
         getRuntimeEnvironmentTransportGeneration(environment.id) === transportGeneration
+      const conversationInventory =
+        args.method === 'session.tabs.subscribeAll'
+          ? openRemoteConversationInventory(
+              environment.id,
+              transportGeneration,
+              environment.runtimeId ?? undefined,
+              () => {
+                notifyClosed()
+                closeSubscription()
+              }
+            )
+          : null
       const sender = event.sender
       const ownerWebContentsId = sender.id
       const setupController = new AbortController()
@@ -88,6 +101,7 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(args: {
         rendererLifetime.signal.removeEventListener('abort', closeSubscription)
       }
       const closeSubscription = (): void => {
+        conversationInventory?.close()
         rendererGone = true
         setupController.abort()
         if (pendingSubscriptions.get(subscriptionId) === pending) {
@@ -143,6 +157,9 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(args: {
               ) {
                 return
               }
+              if (payload.type === 'close' || payload.type === 'error') {
+                conversationInventory?.close()
+              }
               if (payload.type === 'close') {
                 // Why: retirement advances the generation before closing, so gating
                 // close on it stranded the renderer with a dead subscription.
@@ -156,11 +173,16 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(args: {
                 })
                 // After the send, so recording never delays or changes what the window gets.
                 if (payload.type === 'response') {
+                  conversationInventory?.record(
+                    payload.response,
+                    getRuntimeEnvironmentTransportGeneration(environment.id)
+                  )
                   recordLayoutFrame(environment.id, args.method, payload.response)
                 }
               }
             },
             onClose: () => {
+              conversationInventory?.close()
               transportClosed = true
               if (rendererGone) {
                 return
@@ -176,6 +198,7 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(args: {
           setupController.signal
         )
       } catch (error) {
+        conversationInventory?.close()
         if (pendingSubscriptions.get(subscriptionId) === pending) {
           pendingSubscriptions.delete(subscriptionId)
         }

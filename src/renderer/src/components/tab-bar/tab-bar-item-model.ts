@@ -42,13 +42,12 @@ export type TabBarItem =
       isPinned: boolean
       data: Tab
     }
-  | {
-      type: 'agent-session'
+  | (({ type: 'agent-session' } | { type: 'conversation' }) & {
       id: string
       unifiedTabId: string
       isPinned: boolean
-      data: Tab & { contentType: 'agent-session' }
-    }
+      data: Tab & { contentType: 'agent-session' | 'conversation' }
+    })
 
 /** The terminal tab as the strip shows it: its title resolved against the generated-titles setting. */
 export function resolveTerminalItemTab(
@@ -76,7 +75,7 @@ export function getTabDragLabel(item: TabBarItem, generatedTitlesEnabled: boolea
   if (item.type === 'browser') {
     return getBrowserTabLabel(item.data)
   }
-  if (item.type === 'simulator' || item.type === 'agent-session') {
+  if (item.type === 'simulator' || item.type === 'agent-session' || item.type === 'conversation') {
     return item.data.label || 'Mobile Emulator'
   }
   return getEditorDisplayLabel(item.data)
@@ -143,7 +142,7 @@ export function buildOrderedTabItems({
   terminalMap: Map<string, TerminalTab & { unifiedTabId?: string }>
   editorMap: Map<string, OpenFile & { tabId?: string }>
   browserMap: Map<string, BrowserTabState & { tabId?: string }>
-  agentSessionMap: Map<string, Tab & { contentType: 'agent-session' }>
+  agentSessionMap: Map<string, Tab & { contentType: 'agent-session' | 'conversation' }>
   unifiedTabByVisibleId: Map<string, Tab>
 }): TabBarItem[] {
   const ids = reconcileTabOrder(
@@ -206,7 +205,7 @@ export function buildOrderedTabItems({
     const agentSession = agentSessionMap.get(id)
     if (agentSession) {
       items.push({
-        type: 'agent-session',
+        type: agentSession.contentType,
         id,
         unifiedTabId: agentSession.id,
         isPinned: agentSession.isPinned === true,
@@ -254,11 +253,11 @@ export function findActiveVisibleTabId(
     if (item.type === 'simulator') {
       return active.activeTabType === 'simulator' && item.id === active.activeSimulatorTabId
     }
-    if (item.type === 'agent-session') {
+    if (item.type === 'agent-session' || item.type === 'conversation') {
       // Reachable only from TabGroupPanel, which passes the structured tab's own id; the store's
       // `activeTabId` names a background terminal here (cf. TerminalTitlebarTabs, which resolves
       // `getActiveTab(...)?.id` for 'simulator' and never renders agent-session items).
-      return active.activeTabType === 'agent-session' && item.id === active.activeTabId
+      return active.activeTabType === item.type && item.id === active.activeTabId
     }
     return (
       (active.activeTabType === 'editor' || active.activeTabType === 'simulator') &&

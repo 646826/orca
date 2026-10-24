@@ -1,4 +1,12 @@
+import type {
+  ConversationPreparationControls,
+  ConversationEvidenceTrustControls
+} from '../conversations/conversation-preparation-controls'
+import type { ConversationPreparationFactory } from './structured-conversation-switch-installation'
+import type { ConversationDeliveryHost } from '../conversations/conversation-delivery-plan'
 import type { StructuredAgentSessionStatusObserverOptions } from './structured-agent-session-status-observation'
+import type { StructuredConversationSwitchRuntime } from './structured-conversation-switch-host'
+import type { ConversationTriggerAuthority } from '../conversations/conversation-trigger-reservation'
 import type { SubmissionRejectionFact } from '../../../shared/agent-session-failure'
 import type { AgentSessionOwnerProbe } from '../../../shared/agent-session-lease-adjudication'
 import type { AgentJournalCursor } from '../../../shared/agent-session-journal-types'
@@ -15,6 +23,7 @@ import type { JournalHostDatabase } from '../agent-session-journal/journal-host-
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { DeferredStructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import type { JournalStopSettle } from '../agent-session-journal/queued-message-pause'
+import type { CaptureConversationEvidenceLaunch } from './structured-agent-session-evidence-launch'
 import type {
   StructuredAgentSessionAdapter,
   StructuredAgentSessionChildEndCause,
@@ -30,7 +39,11 @@ import type { StructuredAgentRegistry } from './structured-agent-registry'
 import type { StructuredAgentSessionStartupLimits } from './structured-agent-session-startup-attempt-contract'
 import type { AgentChatPermissionMode } from '../../../shared/agent-chat-permission-mode'
 
-export type StructuredAgentSessionCaller = { callerKey: string }
+export type StructuredAgentSessionCaller = {
+  callerKey: string
+  /** Host-derived negotiation fact, never a request payload field. Absent for internal callers. */
+  conversationMutationSupported?: boolean
+}
 
 /** What the host believes about a session it just made addressable again. The workspace and agent
  *  come from the record, so a caller publishes the host's view rather than a client's assertion.
@@ -56,6 +69,7 @@ export type StructuredAgentSessionProviderChildIdentity = {
 export type StructuredAgentSessionChildClose = {
   /** The first stop's, which the child's end keeps however many asks join it. */
   readonly cause: StructuredAgentSessionStopCause
+  readonly conversationClearOperationKey?: string
   /** Asked for by quit, whose leftovers the next open settles as a crash's. */
   readonly quit?: true
   readonly reason: string | null
@@ -127,6 +141,18 @@ export type StructuredAgentSessionHostSession = {
 }
 
 export type StructuredAgentSessionHostDeps = {
+  conversationPreparationControls?: ConversationPreparationControls
+  conversationEvidenceTrust?: ConversationEvidenceTrustControls
+  conversationPreparationFactory?: ConversationPreparationFactory
+  captureConversationEvidenceLaunch?: CaptureConversationEvidenceLaunch
+  bindConversationEvidencePlan?: (
+    sessionId: string,
+    planId: string,
+    signal: AbortSignal
+  ) => Promise<void>
+  conversationDeliveryHost?: ConversationDeliveryHost
+  conversationSwitchRuntime?: StructuredConversationSwitchRuntime
+  conversationTransferAuthority?: ConversationTriggerAuthority
   store: AgentSessionRecordStore
   adapter: StructuredAgentSessionAdapter
   /** The agents this runtime drives; what each declares is read here, never from the adapter. */

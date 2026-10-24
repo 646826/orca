@@ -38,6 +38,7 @@ describe('Claude structured dispatch image limits', () => {
       await expect(dispatched).resolves.toEqual({ state: 'admitted' })
       expect(settled).toHaveBeenCalledWith({
         clientMessageId: 'client-1',
+        originCorrelation: 'exact',
         providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: sentUuid }
       })
     }
@@ -88,6 +89,7 @@ describe('Claude structured dispatch image limits', () => {
     resolveClaudeReplayWaiter(session, userReplayFrame(sentUuid!, 'one'), settled)
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-1',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: sentUuid }
     })
   })
@@ -116,6 +118,7 @@ describe('Claude structured dispatch image limits', () => {
     )
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-1',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: firstUuid }
     })
     expect(resolveClaudeReplayWaiter(session, userReplayFrame(secondUuid!, 'two'), settled)).toBe(
@@ -124,6 +127,7 @@ describe('Claude structured dispatch image limits', () => {
     await expect(second).resolves.toEqual({ state: 'admitted' })
     expect(settled).toHaveBeenLastCalledWith({
       clientMessageId: 'client-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: secondUuid }
     })
   })
@@ -155,6 +159,7 @@ describe('Claude structured dispatch image limits', () => {
     )
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: secondUuid }
     })
   })
@@ -186,6 +191,7 @@ describe('Claude structured dispatch image limits', () => {
     await expect(second).resolves.toEqual({ state: 'admitted' })
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: secondUuid }
     })
   })
@@ -240,6 +246,7 @@ describe('Claude structured dispatch image limits', () => {
     await expect(second).resolves.toEqual({ state: 'admitted' })
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: secondUuid }
     })
   })
@@ -319,6 +326,7 @@ describe('Claude structured dispatch image limits', () => {
     await expect(second).resolves.toEqual({ state: 'admitted' })
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: 'result-b' }
     })
   })
@@ -387,6 +395,7 @@ describe('Claude structured dispatch image limits', () => {
     await expect(first).resolves.toEqual({ state: 'admitted' })
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-1',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: firstUuid }
     })
   })
@@ -595,6 +604,7 @@ describe('Claude structured dispatch image limits', () => {
     await expect(second).resolves.toEqual({ state: 'admitted' })
     expect(settled).toHaveBeenCalledWith({
       clientMessageId: 'client-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: 'result-b' }
     })
   })

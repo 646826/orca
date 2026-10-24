@@ -105,8 +105,14 @@ export class ChunkedUploadRegistry<T> {
 
   private scheduleExpiry(uploadId: string): ReturnType<typeof setTimeout> {
     const timer = setTimeout(() => this.expire(uploadId), this.options.ttlMs)
-    if (typeof timer === 'object' && 'unref' in timer) {
-      timer.unref()
+    const optionalNodeTimer: unknown = timer
+    if (
+      typeof optionalNodeTimer === 'object' &&
+      optionalNodeTimer !== null &&
+      'unref' in optionalNodeTimer &&
+      typeof optionalNodeTimer.unref === 'function'
+    ) {
+      optionalNodeTimer.unref()
     }
     return timer
   }

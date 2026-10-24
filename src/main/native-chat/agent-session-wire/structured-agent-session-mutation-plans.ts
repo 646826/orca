@@ -113,10 +113,15 @@ export function journalRowReceiptResult(
 /** A send accepts with its submission, or a draft held while the agent works, keyed by its id. */
 function submissionOrDraftReceipt<TValue>(clientMessageId: string): MutationCommandReceipt<TValue> {
   return {
-    result: (row) =>
-      row
-        ? journalRowReceiptResult(row, 'submission')
-        : { kind: 'queued-draft', messageId: clientMessageId }
+    result: (row) => {
+      if (
+        !row ||
+        (row.kind === 'queue' && row.messageId === clientMessageId && row.change.op === 'queued')
+      ) {
+        return { kind: 'queued-draft', messageId: clientMessageId }
+      }
+      return journalRowReceiptResult(row, 'submission')
+    }
   }
 }
 

@@ -27,6 +27,7 @@ export class JournalWriteQueue {
   private waiting = 0
   private running = false
   private closed = false
+  private recoveryError: AgentSessionJournalError | null = null
 
   constructor(private readonly sessionId: string) {}
 
@@ -34,9 +35,81 @@ export class JournalWriteQueue {
     this.closed = true
   }
 
+  /** Unlike closing admission, a failed durable adoption also fences work already in line. */
+  poison(cause: unknown): void {
+    this.closed = true
+    this.recoveryError ??= new AgentSessionJournalError(
+      'journal_closed',
+      `agent-session journal for ${this.sessionId} requires durable replay`,
+      { cause }
+    )
+  }
+
+  /** One FIFO position in every lane, installed before any callback can admit another ticket. */
+  static serializeTogether<T>(
+    queues: readonly JournalWriteQueue[],
+    run: JournalWriteBody<T>,
+    signal?: AbortSignal
+  ): Promise<T> {
+    if (queues.length === 0 || new Set(queues).size !== queues.length) {
+      return Promise.reject(new Error('compound journal lanes must be nonempty and distinct'))
+    }
+    for (const queue of queues) {
+      if (queue.closed) {
+        return Promise.reject(queue.recoveryError ?? queue.closedError())
+      }
+    }
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason)
+    }
+    const idle = queues.every((queue) => !queue.lineBusy)
+    const predecessors = queues.map((queue) => queue.writes)
+    let resolve: (value: T | PromiseLike<T>) => void = () => undefined
+    let reject: (error: unknown) => void = () => undefined
+    const result = new Promise<T>((accepted, refused) => {
+      resolve = accepted
+      reject = refused
+    })
+    const settled = result.then(
+      () => undefined,
+      () => undefined
+    )
+    for (const queue of queues) {
+      queue.waiting++
+      queue.writes = settled
+    }
+    const execute = (): void => {
+      for (const queue of queues) {
+        queue.waiting--
+        queue.running = true
+      }
+      try {
+        for (const queue of queues) {
+          queue.assertReplayNotRequired()
+        }
+        signal?.throwIfAborted()
+        const value = run()
+        assertJournalSynchronousResult(value)
+        resolve(value)
+      } catch (error) {
+        reject(error)
+      } finally {
+        for (const queue of queues) {
+          queue.running = false
+        }
+      }
+    }
+    if (idle) {
+      execute()
+    } else {
+      void Promise.all(predecessors).then(execute)
+    }
+    return result
+  }
+
   serialize<T>(run: JournalWriteBody<T>): Promise<T> {
     if (this.closed) {
-      return Promise.reject(this.closedError())
+      return Promise.reject(this.recoveryError ?? this.closedError())
     }
     return this.lineBusy ? this.join(run) : this.runNow(run)
   }
@@ -46,7 +119,7 @@ export class JournalWriteQueue {
    *  fold may be replaced. */
   readInOrder<T>(read: () => T): Promise<T> {
     if (this.closed) {
-      return Promise.reject(this.closedError())
+      return Promise.reject(this.recoveryError ?? this.closedError())
     }
     return this.lineBusy ? this.join(read) : this.runNow(read)
   }
@@ -60,6 +133,12 @@ export class JournalWriteQueue {
       'journal_closed',
       `agent-session journal for ${this.sessionId} is closed`
     )
+  }
+
+  private assertReplayNotRequired(): void {
+    if (this.recoveryError) {
+      throw this.recoveryError
+    }
   }
 
   /** Resolves once every write admitted so far has settled, whatever its outcome. */
@@ -76,6 +155,7 @@ export class JournalWriteQueue {
     this.running = true
     let result: Promise<T>
     try {
+      this.assertReplayNotRequired()
       result = Promise.resolve(run())
     } catch (error) {
       result = Promise.reject(error)
@@ -87,7 +167,10 @@ export class JournalWriteQueue {
   }
 
   private join<T>(run: () => T): Promise<T> {
-    const started = this.writes.then(run)
+    const started = this.writes.then(() => {
+      this.assertReplayNotRequired()
+      return run()
+    })
     this.writes = started.catch(() => undefined)
     this.waiting++
     const settle = (): void => {
@@ -95,5 +178,16 @@ export class JournalWriteQueue {
     }
     started.then(settle, settle)
     return started
+  }
+}
+
+export function assertJournalSynchronousResult(value: unknown): void {
+  if (
+    value !== null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    'then' in value &&
+    typeof value.then === 'function'
+  ) {
+    throw new Error('an owned journal write must not await')
   }
 }

@@ -77,6 +77,12 @@ function isPrepareDroppedPathsRequest(value: unknown): value is PrepareDroppedPa
     (value.consumer === 'agent' ||
       value.consumer === 'main-reader' ||
       value.consumer === 'local-chat') &&
+    (!('localAttachmentOwner' in value) ||
+      (typeof value.localAttachmentOwner === 'object' &&
+        value.localAttachmentOwner !== null &&
+        'sessionId' in value.localAttachmentOwner &&
+        typeof value.localAttachmentOwner.sessionId === 'string' &&
+        value.localAttachmentOwner.sessionId.length > 0)) &&
     'paths' in value &&
     Array.isArray(value.paths) &&
     value.paths.every((path: unknown) => typeof path === 'string')

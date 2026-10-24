@@ -1,3 +1,4 @@
+import { requireConversationMutationHost } from './conversation-gate'
 // Answers to an agent's approvals and questions, and its options.
 import { defineMethod } from '../core'
 import {
@@ -36,6 +37,9 @@ export const STRUCTURED_AGENT_SESSION_PROMPT_RESPONSE_METHODS = [
     permission: 'workspace',
     params: SetOptionParams,
     handler: async (params, ctx) =>
-      requireSessionHost(ctx, params.envelope.sessionId).setOption(callerFor(ctx), params)
+      requireConversationMutationHost(ctx, params.envelope.sessionId).setOption(
+        callerFor(ctx),
+        params
+      )
   })
 ]

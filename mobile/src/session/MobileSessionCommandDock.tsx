@@ -71,6 +71,7 @@ export function MobileSessionCommandDock({ controller }: { controller: MobileSes
   } = controller
   const accessoryBarKeepsKeyboard = useKeyboardPersistingTaps('always')
   return (
+    controller.activeSessionTab?.type !== 'conversation' &&
     !activeMarkdownTab &&
     !activeFileTab &&
     !activeBrowserTab &&

@@ -2,6 +2,8 @@
 // identity, an edit lease stops automatic delivery at the card (and so at everything behind it),
 // and no lease outlives its deadline, its card, or its conversation.
 
+import { commitTestUploadOwner } from '../agent-session-attachments/agent-session-upload-provenance.test-fixture'
+import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -211,6 +213,12 @@ describe("saving a queued card's images", () => {
   async function store(uploadId: string) {
     await mkdir(upload(uploadId), { recursive: true })
     await writeFile(join(upload(uploadId), 'shot.png'), 'bytes')
+    commitTestUploadOwner(openTestJournalHostDatabase(rig.root).db, {
+      sessionId: HOST_TEST_SESSION,
+      uploadId,
+      name: 'shot.png',
+      byteLength: 5
+    })
   }
 
   it('replaces the set by compare-and-set; only a newly named upload must still be stored', async () => {

@@ -97,7 +97,7 @@
     }
   },
   "scripts": {
-    "build": "tsx --conditions=orca-source scripts/build-dist.mjs",
+    "build": "node --import tsx --conditions=orca-source scripts/build-dist.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run --config vitest.config.ts"
   },

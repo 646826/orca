@@ -27,6 +27,7 @@ type OsFileDropContext<Destination> = {
 type OsFileDropOwnerOptions<Destination> = {
   consumer: DroppedPathConsumer | ((destination: Destination | undefined) => DroppedPathConsumer)
   sequence: OsFileDropSequence
+  localAttachmentOwner?: (destination: Destination | undefined) => { sessionId: string } | undefined
   canAccept?: boolean | ((event: DragEvent) => boolean)
   captureDestination?: (event: DragEvent) => Destination
   /** Replaces root liveness for paths; preparation failures still reach onDrop. */
@@ -109,6 +110,7 @@ export function useOsFileDropOwner<Destination = undefined>(
 
         const {
           consumer,
+          localAttachmentOwner,
           sequence,
           onDrop: deliver,
           captureDestination,
@@ -195,7 +197,10 @@ export function useOsFileDropOwner<Destination = undefined>(
           try {
             prepared = await window.api.fs.prepareDroppedPaths({
               paths,
-              consumer: preparationConsumer
+              consumer: preparationConsumer,
+              ...(localAttachmentOwner?.(context.destination)
+                ? { localAttachmentOwner: localAttachmentOwner(context.destination) }
+                : {})
             })
           } catch {
             prepared = {

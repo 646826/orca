@@ -1,8 +1,8 @@
 /**
- * The tab of an `agent.launch` appears before the launch is admitted, at the requested place, and
+ * A warm ledger's unrecorded `agent.launch` shows its tab before admission, at the requested place, and
  * the spawn lands in that tab's pane. Driven through the method's handler with the shared runtime
  * stub and the real durable ledger, so "before admission" is read off the order the host asked for
- * the tab and opened the launch record.
+ * the tab and opened the launch record. Cold or failed optional reads suppress only the early tab.
  */
 
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -148,10 +148,10 @@ function hostWithWindow(
           })
     }
   })
-  const openStore = runtime.openAgentSessionRecordStore.getMockImplementation()!
-  runtime.openAgentSessionRecordStore.mockImplementation(async () => {
+  const openLedger = runtime.openAgentLaunchLedger.getMockImplementation()!
+  runtime.openAgentLaunchLedger.mockImplementation(async () => {
     events.push('admission')
-    return openStore()
+    return openLedger()
   })
   const createTerminal = runtime.createTerminal.getMockImplementation()!
   runtime.createTerminal.mockImplementation(async (selector, createOptions) => {
@@ -216,9 +216,19 @@ async function paneVerdict(
 
 /** The record not open yet when the request arrives, as on the first launch after a restart. */
 function coldRecord(runtime: Host): Host {
-  // Only at the publish: admission opens it.
-  runtime.openedAgentSessionRecordStore.mockReturnValueOnce(null)
+  // Unknown is not evidence of absence; only admission may open a cold ledger.
+  runtime.readAgentLaunchPublicationEligibility.mockResolvedValueOnce('unknown')
   return runtime
+}
+
+function recordAfterPublicationCheck(runtime: Host, record: () => Promise<unknown>): void {
+  const read = runtime.readAgentLaunchPublicationEligibility.getMockImplementation()!
+  runtime.readAgentLaunchPublicationEligibility.mockImplementationOnce(async (input) => {
+    const eligibility = await read(input)
+    expect(eligibility).toBe('unrecorded')
+    await record()
+    return eligibility
+  })
 }
 
 /** A spawn that fails before the daemon was asked for a process: nothing can be running. */
@@ -465,10 +475,11 @@ describe.each(['window', 'main'] as const)('the %s owning the layout', (owner) =
 
     it('takes back a tab nothing ran into without letting its waiting pane start a shell', async () => {
       const operationId = nextOperationId()
-      await replayLaunch(hostWithWindow({ terminalPaneKey: PANE_KEY }), { operationId }, CLI)
-
       const verdicts: Promise<AgentLaunchPaneVerdict | 'unowned'>[] = []
-      const refused = coldRecord(hostWithWindow())
+      const refused = hostWithWindow()
+      recordAfterPublicationCheck(refused, () =>
+        replayLaunch(hostWithWindow({ terminalPaneKey: PANE_KEY }), { operationId }, CLI)
+      )
       const publish = refused.publishAgentLaunchTab.getMockImplementation()!
       refused.publishAgentLaunchTab.mockImplementation((request) => {
         const published = publish(request)
@@ -504,7 +515,7 @@ describe.each(['window', 'main'] as const)('the %s owning the layout', (owner) =
         verdicts.push(paneVerdict(runtime, `${request.tabId}:${request.leafId}`))
         return published
       })
-      runtime.openAgentSessionRecordStore.mockRejectedValueOnce(new Error('EACCES'))
+      runtime.openAgentLaunchLedger.mockRejectedValueOnce(new Error('EACCES'))
 
       await expect(replayLaunch(runtime, { paneKey: PANE_KEY }, CLI)).rejects.toThrow('EACCES')
 
@@ -564,7 +575,7 @@ describe.each(['window', 'main'] as const)('the %s owning the layout', (owner) =
       expect(refused.published).toEqual([])
     })
 
-    it('with the record not yet open: a tab still shown is an ordinary pane when its outcome is unknown', async () => {
+    it('with the ledger cold: an unknown recorded outcome publishes no optional tab', async () => {
       const operationId = nextOperationId()
       const first = hostWithWindow()
       failAfterDispatch(first, 'daemon create timed out')
@@ -572,53 +583,37 @@ describe.each(['window', 'main'] as const)('the %s owning the layout', (owner) =
         'agent_session_operation_unknown'
       )
 
-      // After a restart: the retry publishes onto the restored tab, which the window keeps as is.
+      resetAgentLaunchPanesForTests()
+      // A cold optional read cannot authorize publication onto a restored tab.
       const retried = coldRecord(hostWithWindow({ reply: { created: false } }))
       await expect(replayLaunch(retried, { paneKey: PANE_KEY, operationId }, CLI)).rejects.toThrow(
         'agent_session_operation_unknown'
       )
-      expect(retried.published[0]?.operationId).toBe(operationId)
-      await vi.waitFor(() =>
-        expect(retried.reportAgentLaunchPaneVerdict).toHaveBeenCalledWith(
-          { worktreeId: 'wt-7', tabId: TAB_ID, leafId: LEAF_ID },
-          { kind: 'proceed' }
-        )
-      )
+      expect(retried.published).toEqual([])
+      expect(retried.reportAgentLaunchPaneVerdict).not.toHaveBeenCalled()
+      expect(retried.createTerminal).not.toHaveBeenCalled()
+      await expect(paneVerdict(retried)).resolves.toBe('unowned')
     })
 
-    it('with the record not yet open: a tab remade for nothing goes, one an agent survived in stays', async () => {
+    it('with the ledger cold: replay preserves absent and surviving panes without publishing or withdrawing', async () => {
       const operationId = nextOperationId()
       await replayLaunch(
         hostWithWindow({ terminalPaneKey: PANE_KEY }),
         { paneKey: PANE_KEY, operationId },
         CLI
       )
-
-      const remadeForNothing = coldRecord(hostWithWindow())
-      await replayLaunch(remadeForNothing, { paneKey: PANE_KEY, operationId }, CLI)
-      await vi.waitFor(() =>
-        expect(remadeForNothing.reportAgentLaunchPaneVerdict).toHaveBeenCalledWith(
-          { worktreeId: 'wt-7', tabId: TAB_ID, leafId: LEAF_ID },
-          { kind: 'withdrawn' }
-        )
-      )
-
-      const survived = coldRecord(hostWithWindow())
-      // The agent's pane comes back while the replay runs (the daemon kept it across a crash).
-      survived.publishAgentLaunchTab.mockImplementationOnce(async (request) => {
-        survived.hasLiveTerminalForPaneKey.mockReturnValue(true)
-        return { tabId: request.tabId, created: true, placement: { groupId: 'group-1' } }
-      })
-      await replayLaunch(survived, { paneKey: PANE_KEY, operationId }, CLI)
-      await vi.waitFor(() =>
-        expect(survived.reportAgentLaunchPaneVerdict).toHaveBeenCalledWith(
-          { worktreeId: 'wt-7', tabId: TAB_ID, leafId: LEAF_ID },
-          { kind: 'proceed' }
-        )
-      )
-      expect(survived.reportAgentLaunchPaneVerdict).not.toHaveBeenCalledWith(expect.anything(), {
-        kind: 'withdrawn'
-      })
+      for (const runtime of [
+        coldRecord(hostWithWindow()),
+        coldRecord(hostWithWindow({ adoptedPanes: { [PANE_KEY]: 'term_survived' } }))
+      ]) {
+        const result = await replayLaunch(runtime, { paneKey: PANE_KEY, operationId }, CLI)
+        expect(runtime.published).toEqual([])
+        expect(runtime.reportAgentLaunchPaneVerdict).not.toHaveBeenCalled()
+        expect(runtime.createTerminal).not.toHaveBeenCalled()
+        if (runtime.getTerminalHandleForPaneKey(PANE_KEY)) {
+          expect(result.outcome).toMatchObject({ kind: 'terminal', handle: 'term_survived' })
+        }
+      }
     })
   })
 
@@ -881,8 +876,10 @@ describe.each(['window', 'main'] as const)('the %s owning the layout', (owner) =
     "is main's own write, and a withdrawn pane main's own take-back, with or without a window",
     async () => {
       const operationId = nextOperationId()
-      await replayLaunch(hostWithWindow({ terminalPaneKey: PANE_KEY }), { operationId }, CLI)
-      const refused = coldRecord(hostWithWindow())
+      const refused = hostWithWindow()
+      recordAfterPublicationCheck(refused, () =>
+        replayLaunch(hostWithWindow({ terminalPaneKey: PANE_KEY }), { operationId }, CLI)
+      )
       await expect(
         replayLaunch(
           refused,
@@ -914,12 +911,10 @@ describe.each(['window', 'main'] as const)('the %s owning the layout', (owner) =
       const real = setupMainOwnedWorkspace()
       const target = { kind: 'existing', worktree: `id:${MAIN_WORKTREE_ID}` }
       const operationId = nextOperationId()
-      await replayLaunch(
-        hostWithWindow({ terminalPaneKey: PANE_KEY }),
-        { operationId, target },
-        CLI
+      const refused = hostWithWindow()
+      recordAfterPublicationCheck(refused, () =>
+        replayLaunch(hostWithWindow({ terminalPaneKey: PANE_KEY }), { operationId, target }, CLI)
       )
-      const refused = coldRecord(hostWithWindow())
       refused.publishAgentLaunchTabInMainLayout.mockImplementation((request) =>
         real.runtime.publishAgentLaunchTabInMainLayout(request)
       )

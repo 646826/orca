@@ -14,6 +14,7 @@ export const ORCAD_CHILD_ENTRY_POINTS = {
   watcher: 'src/main/ipc/parcel-watcher-process-entry.ts',
   daemon: 'src/main/daemon/daemon-entry.ts',
   writer: 'src/main/persistence/profile-state/profile-state-writer-worker-entry.ts',
+  conversationScratch: 'src/main/native-chat/conversations/conversation-scratch-worker-entry.ts',
   backup: 'src/main/persistence/profile-state/profile-state-backup-worker-entry.ts',
   foreignSqliteReader: 'src/main/foreign-sqlite-readers/foreign-sqlite-reader-entry.ts',
   portScanCommandWorker: 'src/main/ports/port-scan-command-worker-entry.ts',

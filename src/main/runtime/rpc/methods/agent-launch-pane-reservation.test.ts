@@ -87,7 +87,7 @@ describe('a launch into an existing workspace', () => {
 
     expect(result.outcome.kind).toBe('terminal')
     expect(terminalOptions(runtime)).toMatchObject({ tabId: TAB_ID, leafId: LEAF_ID })
-    expect(runtime.openAgentSessionRecordStore).not.toHaveBeenCalled()
+    expect(runtime.openAgentLaunchLedger).not.toHaveBeenCalled()
   })
 
   it('leaves the pane to the runtime when the caller reserved none', async () => {

@@ -5,13 +5,23 @@ import type {
   AgentJournalCursor,
   AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
+import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import { journalDispatchRowApplies } from './journal-dispatch-settlement'
 import type { JournalQueuedMessages, JournalQueuePlan } from './journal-queued-messages'
 import type { JournalAttachmentClaim } from './journal-submission-hook'
+import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalReducerState } from './journal-reducer'
-import { journalDispatchRowBuilder, journalSubmissionRowBuilder } from './journal-row-builders'
+import {
+  buildJournalTombstoneRow,
+  journalDispatchRowBuilder,
+  journalSubmissionRowBuilder
+} from './journal-row-builders'
 import type { JournalRow } from './journal-row-schema'
-import type { JournalOperationReceipt, JournalRowWriter } from './journal-row-writer'
+import {
+  composeJournalOperationReceipts,
+  type JournalOperationReceipt,
+  type JournalRowWriter
+} from './journal-row-writer'
 import type {
   JournalSubmissionConsume,
   JournalSubmissionInput,
@@ -21,6 +31,7 @@ import type {
 export type JournalSubmissionWriterDeps = {
   state: () => JournalReducerState
   identity: AgentSessionJournalIdentity
+  database: () => JournalHostDatabase
   rowWriter: JournalRowWriter
   queuedMessages: JournalQueuedMessages
   claimAttachments: JournalAttachmentClaim
@@ -42,40 +53,108 @@ export class JournalSubmissionWriter {
     /** The send's ledger answer, committed with this row. */
     receipt?: JournalOperationReceipt
   ): Promise<AgentJournalCursor> {
-    const { claimAttachments, identity, queuedMessages, rowWriter, state } = this.deps
-    const submission = journalSubmissionRowBuilder(state, identity, input, consume)
-    let card: JournalQueuePlan | undefined
-    return rowWriter
+    let planned: ReturnType<JournalSubmissionWriter['plan']> | undefined
+    return this.deps.rowWriter
       .enqueueRows(
         () => {
-          if (!consume) {
-            return [submission]
-          }
-          queuedMessages.assertConsumable({
-            ...consume,
-            consumedAs: input.clientMessageId,
-            fingerprint: input.payloadFingerprint
-          })
-          // A card an earlier build wrote moves into the journal with its hand-off.
-          card = queuedMessages.plan([{ messageId: consume.messageId }])
-          return [...card.rows, submission]
+          planned = this.plan(input, consume)
+          return planned.rows
         },
-        {
-          write: (db, row) => {
-            card?.receipt.write(db)
-            // A client's new message must name only attachments still stored; a card's were
-            // claimed when it was queued.
-            claimAttachments(db, input.body, input.origin === 'client' && !consume)
-            receipt?.write(db, row)
+        composeJournalOperationReceipts(
+          {
+            write: (db, row) => planned?.receipt.write(db, row),
+            committed: () => planned?.receipt.committed(),
+            rolledBack: () => planned?.receipt.rolledBack?.()
           },
-          committed: () => {
-            card?.receipt.committed()
-            receipt?.committed()
-          }
-        },
+          ...(receipt ? [receipt] : [])
+        ),
         (rows) => rows.at(-1)
       )
       .then(rowCursor)
+  }
+
+  /** Plans only, on an already owned lane; the compound owner performs the write and adoption. */
+  plan(input: JournalSubmissionInput, consume?: JournalSubmissionConsume) {
+    const { claimAttachments, identity, queuedMessages, state } = this.deps
+    const submission = journalSubmissionRowBuilder(state, identity, input, consume)
+    let card: JournalQueuePlan | undefined
+    if (consume) {
+      queuedMessages.assertConsumable({
+        ...consume,
+        consumedAs: input.clientMessageId,
+        fingerprint: input.payloadFingerprint
+      })
+      card = queuedMessages.plan([{ messageId: consume.messageId }])
+    }
+    const receipt = composeJournalOperationReceipts(...(card ? [card.receipt] : []), {
+      write: (db) => claimAttachments(db, input.body, input.origin === 'client' && !consume),
+      committed: () => {}
+    })
+    return {
+      rows: [...(card?.rows ?? []), submission],
+      receipt,
+      receiptRow: (rows: readonly JournalRow[]) => rows.at(-1)
+    }
+  }
+
+  /** A compound recovery must supply durable no-write authority before committing this retirement. */
+  planRetireSubmission(
+    clientMessageId: string,
+    fence: number,
+    historical?: { epoch: string; sequence: number; payloadFingerprint: string }
+  ) {
+    return [
+      (seq: number, ts: number): JournalRow => {
+        const state = this.deps.state()
+        const submission = state.submissions.get(clientMessageId)
+        if (historical) {
+          const retained = this.deps
+            .database()
+            .db.prepare(`SELECT 1 AS present FROM journal_rows
+            WHERE session_id=? AND epoch=? AND seq=?
+            AND json_extract(row_json,'$.kind')='submission'
+            AND json_extract(row_json,'$.clientMessageId')=?
+            AND json_extract(row_json,'$.payloadFingerprint')=?
+            AND json_extract(row_json,'$.queuedMessageId') IS NULL
+            AND json_extract(row_json,'$.epoch')=? AND json_extract(row_json,'$.seq')=?`)
+            .get(
+              this.deps.identity.sessionId,
+              historical.epoch,
+              historical.sequence,
+              clientMessageId,
+              historical.payloadFingerprint,
+              historical.epoch,
+              historical.sequence
+            )
+          if (
+            !retained ||
+            (submission &&
+              (state.epoch !== historical.epoch ||
+                submission.submittedSequence !== historical.sequence ||
+                submission.payloadFingerprint !== historical.payloadFingerprint))
+          ) {
+            throw new Error('submission retirement historical identity changed')
+          }
+        }
+        if (
+          submission
+            ? submission.dispatchState !== 'rejected' || submission.queuedMessageId !== undefined
+            : !historical || state.epoch === historical.epoch
+        ) {
+          throw new Error('only a rejected unlinked submission can be retired by compound recovery')
+        }
+        return {
+          ...buildJournalTombstoneRow({
+            state,
+            itemId: agentJournalSubmissionKey(clientMessageId),
+            seq,
+            ts,
+            fence
+          }),
+          retireSubmission: true
+        }
+      }
+    ]
   }
 
   /**
@@ -89,11 +168,12 @@ export class JournalSubmissionWriter {
   resolveDispatch(
     input: ResolveDispatchInput,
     /** Card rows that commit with this one, planned at its turn on the lane. */
-    cards?: () => JournalQueuePlan
+    cards?: () => JournalQueuePlan,
+    receipt?: JournalOperationReceipt
   ): Promise<AgentJournalCursor> {
     const dispatch = journalDispatchRowBuilder(this.deps.state, input)
     if (!cards) {
-      return this.deps.rowWriter.append(dispatch)
+      return this.deps.rowWriter.append(dispatch, receipt)
     }
     let planned: JournalQueuePlan | undefined
     return this.deps.rowWriter
@@ -102,10 +182,14 @@ export class JournalSubmissionWriter {
           planned = cards()
           return [dispatch, ...planned.rows]
         },
-        {
-          write: (db) => planned?.receipt.write(db),
-          committed: () => planned?.receipt.committed()
-        },
+        composeJournalOperationReceipts(
+          {
+            write: (db) => planned?.receipt.write(db),
+            committed: () => planned?.receipt.committed(),
+            rolledBack: () => planned?.receipt.rolledBack?.()
+          },
+          ...(receipt ? [receipt] : [])
+        ),
         (rows) => rows[0]
       )
       .then((rows) => rowCursor(rows.slice(0, 1)))

@@ -1,3 +1,4 @@
+import { reconcileMobileConversationInventory } from './mobile-conversation-inventory'
 import {
   pendingSelectionHandle,
   pendingSelectionTabId,
@@ -64,6 +65,7 @@ export function useMobileSessionTabApplication(scope: MobileSessionTerminalListM
       if (!acceptSessionSnapshot(result, appliedSnapshotMarkerRef.current)) {
         return { accepted: false }
       }
+      result = reconcileMobileConversationInventory(result, sessionTabsRef.current)
       const applicationRevision = ++appliedSessionTabsRevisionRef.current
       const now = Date.now()
       let nextTabs = withRememberedNativeChatIdentity(

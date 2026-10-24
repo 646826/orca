@@ -7,6 +7,7 @@ import {
   type TypeCyclableTab
 } from '@/components/terminal/tab-type-cycle'
 import { sanitizeRecentTabIds } from '../store/slices/tab-group-state'
+import { activateStructuredAgentSessionTab } from '@/lib/structured-agent-session-tab-activation'
 
 type AppStoreState = ReturnType<typeof useAppStore.getState>
 
@@ -49,6 +50,10 @@ function resolveCycleContext(): CycleContext | null {
     group?.activeTabId && allTabIds.some((entry) => entry.tabId === group.activeTabId)
       ? group.activeTabId
       : null
+  // Conversation entities are not terminal selection ids; wait for authoritative group hydration.
+  if (store.activeTabType === 'conversation' && !groupTabIdInNav) {
+    return null
+  }
   return { store, worktreeId, allTabIds, groupTabIdInNav }
 }
 
@@ -80,6 +85,10 @@ export function activateCyclableTab(store: AppStoreState, next: TypeCyclableTab)
       store.activateTab?.(next.tabId)
     }
     store.setActiveTabType('simulator', worktreeId)
+  } else if (next.type === 'conversation') {
+    if (worktreeId && next.tabId) {
+      activateStructuredAgentSessionTab({ worktreeId, tabId: next.tabId })
+    }
   } else if (next.type === 'agent-session') {
     if (next.tabId) {
       store.activateTab?.(next.tabId)
@@ -119,7 +128,7 @@ export function handleSwitchTab(direction: number): boolean {
     activeGroupTabId: groupTabIdInNav,
     direction
   })
-  if (!next) {
+  if (!next || (next.type === 'conversation' && !groupTabIdInNav)) {
     return false
   }
   activateCyclableTab(store, next)
@@ -150,7 +159,7 @@ export function handleSwitchTabAcrossAllTypes(direction: number): boolean {
     activeGroupTabId: groupTabIdInNav,
     direction
   })
-  if (!next) {
+  if (!next || (next.type === 'conversation' && !groupTabIdInNav)) {
     return false
   }
   activateCyclableTab(store, next)
@@ -353,7 +362,9 @@ export function handleSwitchTerminalTab(direction: number): boolean {
     store.activeTabId,
     store.activeFileId,
     store.activeBrowserTabId,
-    activeTab?.contentType === 'agent-session' ? activeTab.entityId : null
+    activeTab?.contentType === 'agent-session' || activeTab?.contentType === 'conversation'
+      ? activeTab.entityId
+      : null
   )
   // Why: when an editor/browser/structured tab is active, jump to the first terminal on
   // forward navigation instead of skipping to index 1.

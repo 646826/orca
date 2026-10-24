@@ -33,6 +33,25 @@ export function commitAgentSessionFounding(
       operationRow: decision.row
     }
   }
+  const record = foundAgentSessionInto(state, request)
+  const operationRow = {
+    ...decision.row,
+    outcome: { status: 'succeeded' as const, sessionId: request.sessionId }
+  }
+  state.records.set(request.sessionId, record)
+  state.operations.set(
+    agentSessionOperationKey(operationRow.callerKey, operationRow.operationId),
+    operationRow
+  )
+  setAgentSessionTabVisibility(state, request.sessionId, true, request.surfaceTabId)
+  return { record, disposition: 'created', operationRow }
+}
+
+/** The admitted store draft owns the ledger; this mutation never publishes a native tab. */
+export function foundAgentSessionInto(
+  state: AgentSessionStoreState,
+  request: AgentSessionReserveRequest
+) {
   validateAgentSessionReservationInput(request)
   if (request.expectedFence !== null) {
     throw agentSessionRefusalError('agent_session_operation_invalid', {
@@ -61,15 +80,6 @@ export function commitAgentSessionFounding(
   const record = request.adoptedHandleLink
     ? { ...founded, providerHandleChain: [request.adoptedHandleLink] }
     : founded
-  const operationRow = {
-    ...decision.row,
-    outcome: { status: 'succeeded' as const, sessionId: request.sessionId }
-  }
   state.records.set(request.sessionId, record)
-  state.operations.set(
-    agentSessionOperationKey(operationRow.callerKey, operationRow.operationId),
-    operationRow
-  )
-  setAgentSessionTabVisibility(state, request.sessionId, true, request.surfaceTabId)
-  return { record, disposition: 'created', operationRow }
+  return record
 }

@@ -1,9 +1,13 @@
+import {
+  projectConversationSessionTabs,
+  includeConversationWorkspaces,
+  conversationInventoryComplete
+} from './session-tabs-conversation-projection'
 import { isDeepStrictEqual } from 'node:util'
 import { SESSION_TABS_AUTHORITATIVE_INVENTORY_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
 import type { RpcContext } from '../core'
-import { projectSessionTabAgentStatus } from './session-tab-agent-status-projection'
-import { projectSessionTabBrowserPlacements } from './session-tab-browser-placement-projection'
+import { projectSessionTabsForClient } from './session-tab-agent-status-projection'
 import { createSessionTabsRetirementProofDelta } from './session-tabs-retirement-proof-delta'
 import { restoreStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { createSessionTabsTabDeltaEncoder } from '../../../../shared/session-tabs-tab-delta'
@@ -11,6 +15,7 @@ import { createSessionTabsTabDeltaEncoder } from '../../../../shared/session-tab
 type SessionTabsInventory = {
   snapshots: RuntimeMobileSessionTabsResult[]
   authoritative?: true
+  conversationSurfacesComplete?: true
 }
 
 type SessionTabsChange = RuntimeMobileSessionTabsResult & { removed?: true }
@@ -26,25 +31,23 @@ function clientUnderstandsAuthoritativeInventory(context: RpcContext): boolean {
   )
 }
 
-export function projectSessionTabsForClient(
-  snapshot: RuntimeMobileSessionTabsResult,
-  clientKind: 'mobile' | 'runtime' | undefined,
-  clientCapabilities: Parameters<typeof projectSessionTabAgentStatus>[2]
-): RuntimeMobileSessionTabsResult {
-  return projectSessionTabBrowserPlacements(
-    projectSessionTabAgentStatus(snapshot, clientKind, clientCapabilities),
-    clientCapabilities
-  )
-}
+export { projectSessionTabsForClient } from './session-tab-agent-status-projection'
 
 function projectInventory(
   inventory: SessionTabsInventory,
   context: RpcContext
 ): SessionTabsInventory {
+  const snapshots = inventory.snapshots.map((snapshot) =>
+    projectConversationSessionTabs(
+      projectSessionTabsForClient(snapshot, context.clientKind, context.clientCapabilities),
+      context
+    )
+  )
   return {
-    snapshots: inventory.snapshots.map((snapshot) =>
-      projectSessionTabsForClient(snapshot, context.clientKind, context.clientCapabilities)
-    ),
+    snapshots,
+    ...(conversationInventoryComplete(snapshots, context)
+      ? { conversationSurfacesComplete: true as const }
+      : {}),
     ...(inventory.authoritative && clientUnderstandsAuthoritativeInventory(context)
       ? { authoritative: true as const }
       : {})
@@ -65,13 +68,28 @@ async function collectSessionTabsInventory(
     const inventory = runtime.supportsAuthoritativeSessionTabsInventory()
       ? await runtime.listAllMobileSessionTabsInventory(pairedDeviceId, signal)
       : { snapshots: await runtime.listAllMobileSessionTabs(pairedDeviceId) }
-    return { inventory: projectInventory(inventory, context), changeSequence: 0 }
+    return {
+      inventory: projectInventory(
+        {
+          ...inventory,
+          snapshots: await includeConversationWorkspaces(inventory.snapshots, context)
+        },
+        context
+      ),
+      changeSequence: 0
+    }
   }
   const collected = runtime.supportsAuthoritativeSessionTabsInventory()
     ? await runtime.listAllMobileSessionTabsInventoryWithChangeSequence(pairedDeviceId, signal)
     : await runtime.listAllMobileSessionTabsWithChangeSequence(pairedDeviceId)
   return {
-    inventory: projectInventory(collected, context),
+    inventory: projectInventory(
+      {
+        ...collected,
+        snapshots: await includeConversationWorkspaces(collected.snapshots, context)
+      },
+      context
+    ),
     changeSequence: collected.changeSequence
   }
 }
@@ -113,10 +131,9 @@ export async function subscribeSessionTabsInventory(
   const tabDelta = createSessionTabsTabDeltaEncoder(context.clientCapabilities)
   const projectChange = (snapshot: SessionTabsChange): SessionTabsChange =>
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: projection rewrites only tabs and groups; the change fields it was handed pass through.
-    projectSessionTabsForClient(
-      snapshot,
-      context.clientKind,
-      context.clientCapabilities
+    projectConversationSessionTabs(
+      projectSessionTabsForClient(snapshot, context.clientKind, context.clientCapabilities),
+      context
     ) as SessionTabsChange
   const withoutNavigationIntent = (snapshot: SessionTabsChange): SessionTabsChange => {
     if (snapshot.navigationIntent === undefined) {

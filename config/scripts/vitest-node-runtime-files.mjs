@@ -2,6 +2,15 @@ import { findSqliteRuntimeTests } from './vitest-sqlite-runtime-scan.mjs'
 
 // SQLite publication, native bindings, worker IPC, socket liveness, and V8 retention use Node.
 const NODE_RUNTIME_INCLUDE = [
+  // Presentation/history projections execute real node:sqlite worker threads.
+  'src/main/native-chat/conversations/conversation-scratch-*.test.ts',
+  'config/scripts/conversation-context-benchmark.test.mjs',
+  'src/main/native-chat/conversations/conversation-presentation-*.test.ts',
+  'src/main/native-chat/conversations/conversation-history*.test.ts',
+  // The real Claude SDK peer launches with Node, matching the production runtime.
+  'src/main/native-chat/agent-session-wire/structured-conversation-cross-provider.test.ts',
+  'src/main/native-chat/agent-session-wire/structured-conversation-opencode-roundtrip.test.ts',
+  'src/main/native-chat/agent-session-wire/structured-conversation-three-engine-cycle.test.ts',
   'src/main/runtime/structured-agent-cli-writers.test.ts',
   'config/scripts/vitest-sqlite-runtime-boundary.test.ts',
   'config/scripts/cloud-security-history-workflow.test.mjs',

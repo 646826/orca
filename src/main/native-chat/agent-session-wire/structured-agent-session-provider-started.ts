@@ -196,15 +196,15 @@ async function recordStartedHandle(
 ): Promise<boolean> {
   const { store, logger } = context.deps
   const { link } = event
-  if (!link) {
-    // Only a spawn that already held its handle may prove its open without one.
-    return store.getRecord(event.sessionId)?.lease.provenHandleLinkId != null
-  }
   try {
-    await store.transitionHandoff(event.sessionId, (record) =>
-      recordAgentSessionProviderHandle({ record, fence: event.fence, link, now: context.now() })
-    )
-    return true
+    const published = await store.publishProviderHandle({
+      sessionId: event.sessionId,
+      fence: event.fence,
+      acquisitionGeneration: event.acquisitionGeneration,
+      link,
+      now: context.now()
+    })
+    return published.lease.provenHandleLinkId != null
   } catch (error) {
     logger.warn('recording the handle a started provider answered with failed', {
       scope: 'provider-started-handle',

@@ -1,3 +1,4 @@
+import { hideStructuredSessionTab } from './structured-session-tab-hide'
 import type { OrcaRuntimeWithPruneMobileSessionTabGroupLayout as PruneMobileSessionTabGroupLayoutMethods } from '../session-lifecycle/projection/prune-mobile-session-tab-group-layout'
 import type { RuntimeHeadlessTabGroups as HeadlessTabGroupsMethods } from './headless-tab-group-moves'
 import { OrcaRuntimeWithCloseMobileSessionTab } from '../session-lifecycle/close/close-mobile-session-tab'
@@ -42,7 +43,10 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
     ...args: Parameters<PruneMobileSessionTabGroupLayoutMethods['getMobileTerminalPaneKey']>
   ): ReturnType<PruneMobileSessionTabGroupLayoutMethods['getMobileTerminalPaneKey']>
 
-  abstract applyLayoutCommand(command: WindowLayoutCommand): Promise<LayoutApplyReply>
+  abstract applyLayoutCommand(
+    command: WindowLayoutCommand,
+    beforeMutation?: () => void
+  ): Promise<LayoutApplyReply>
 
   protected abstract persistHeadlessTabGroups(
     ...args: Parameters<HeadlessTabGroupsMethods['persistHeadlessTabGroups']>
@@ -50,23 +54,14 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
 
   protected async closeStructuredAgentSessionTab(
     tab: RuntimeMobileSessionAgentTab,
-    cause: StructuredAgentSessionCloseCause
+    cause: StructuredAgentSessionCloseCause,
+    assertAgentSessionMutation?: (sessionId: string) => void
   ): Promise<void> {
+    assertAgentSessionMutation?.(tab.sessionId)
     const host = getStructuredAgentSessionHost()
-    if (host) {
-      if (typeof host.setSessionTabVisibility === 'function') {
-        // The restore index is bookkeeping: one that cannot be written (a newer Orca's records, a
-        // failing disk) is reported, and the tab still closes.
-        await host.setSessionTabVisibility(tab.sessionId, false).catch((error: unknown) => {
-          host.deps.logger.warn('recording a closed chat tab failed', {
-            scope: 'tab-visibility-close',
-            sessionId: tab.sessionId,
-            error
-          })
-        })
-      }
-    }
+    await hideStructuredSessionTab(host, tab, assertAgentSessionMutation)
     // Retire durable visibility and the runtime snapshot before stopping the provider.
+    assertAgentSessionMutation?.(tab.sessionId)
     this.retireStructuredAgentSessionTabFromSnapshot(tab.sessionId)
     if (typeof host?.close === 'function') {
       await host.close(tab.sessionId, cause)

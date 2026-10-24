@@ -1,3 +1,4 @@
+import { requireConversationMutationCapability } from './conversation-gate'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../../shared/agent-chat-permission-mode'
 import type { z } from 'zod'
 import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
@@ -56,6 +57,7 @@ export async function attachClientSuppliedLocation(
   ctx: RpcContext
 ): Promise<unknown> {
   const { host, attachParams } = await resolveClientSuppliedAttach(params, ctx)
+  requireConversationMutationCapability(ctx, host, params.envelope.sessionId)
   return host.attach(callerFor(ctx), attachParams)
 }
 

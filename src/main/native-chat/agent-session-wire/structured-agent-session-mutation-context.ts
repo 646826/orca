@@ -96,6 +96,7 @@ export function runStructuredAgentSessionMutation<TValue>(
     agents: context.deps.agents,
     logger: context.deps.logger,
     callerKey: caller.callerKey,
+    conversationMutationSupported: caller.conversationMutationSupported,
     envelope,
     plan,
     journal: () => context.sessions.get(envelope.sessionId)?.journal,

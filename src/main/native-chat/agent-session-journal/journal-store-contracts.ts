@@ -1,3 +1,4 @@
+import type { JournalRowTransactionHook, JournalRowWriter } from './journal-row-writer'
 import type { JournalItemEcho } from './journal-item-echo'
 import type { AgentJournalDispatchRejection } from '../../../shared/agent-session-failure-words'
 import type {
@@ -18,7 +19,6 @@ import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalLifecycleMutationInput } from './journal-row-builders'
 import type { JournalRow } from './journal-row-schema'
 import type { JournalReducerState } from './journal-reducer'
-import type { JournalRowWriter } from './journal-row-writer'
 import type { JournalAttachmentClaim } from './journal-submission-hook'
 import type { JournalWriteBody } from './journal-write-queue'
 
@@ -27,6 +27,7 @@ export type AgentSessionJournalOptions = {
   database: JournalHostDatabase
   now?: () => number
   mintEpoch?: () => string
+  requiredInTransaction?: JournalRowTransactionHook
 }
 
 export type JournalReadSince =
@@ -41,7 +42,11 @@ export type ResolveDispatchInput = {
   /** A null identity: the provider took the message without echoing an item of its own, as a
    *  conversation command it carries out in place. */
   (
-    | { state: 'accepted'; providerIdentity: AgentJournalItemIdentity | null }
+    | {
+        state: 'accepted'
+        providerIdentity: AgentJournalItemIdentity | null
+        originCorrelation?: 'exact'
+      }
     /** The turn the message is handed into — the live root turn, or `thread` when none runs. */
     | {
         state: 'pending'

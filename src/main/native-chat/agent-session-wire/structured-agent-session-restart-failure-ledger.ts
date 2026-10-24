@@ -63,7 +63,8 @@ export type StructuredAgentSessionRestartFailureLedger = {
   dismiss: (
     sessionIds: readonly string[] | undefined,
     beforeClearAll: (audience?: StructuredAgentSessionRestartAudience) => void | Promise<void>,
-    audience?: StructuredAgentSessionRestartAudience
+    audience?: StructuredAgentSessionRestartAudience,
+    assertMutationSupported?: (sessionId: string) => void
   ) => Promise<number>
 }
 
@@ -224,7 +225,7 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
     read,
     list,
     settle,
-    dismiss: (sessionIds, beforeClearAll, audience) =>
+    dismiss: (sessionIds, beforeClearAll, audience, assertMutationSupported) =>
       deps.enqueue(async () => {
         if (audience) {
           // Decided under the capsule lock. A record whose chat this host cannot read names no
@@ -232,11 +233,14 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
           // An unnamed dismissal keeps a newer Orca's records too: they were never listed here.
           const hidden = (marker: AgentSessionResumeMarker) => {
             const record = deps.getRecord(marker.sessionId)
-            return (
+            const keep =
               record === null ||
               !audience(record.provider) ||
               (sessionIds === undefined && deps.savedByNewerOrca(marker.sessionId))
-            )
+            if (!keep) {
+              assertMutationSupported?.(marker.sessionId)
+            }
+            return keep
           }
           if (sessionIds === undefined) {
             await beforeClearAll(audience)
@@ -246,11 +250,22 @@ export function createStructuredAgentSessionRestartFailureLedger(deps: {
           return (await deps.capsule?.dismiss(sessionIds ?? 'all', deps.now(), hidden)) ?? 0
         }
         if (sessionIds !== undefined) {
-          return (await deps.capsule?.dismiss(sessionIds, deps.now())) ?? 0
+          return (
+            (await deps.capsule?.dismiss(sessionIds, deps.now(), (marker) => {
+              assertMutationSupported?.(marker.sessionId)
+              return false
+            })) ?? 0
+          )
         }
         await beforeClearAll()
         // A newer Orca's offers and failures were never shown here, so "dismiss all" keeps them.
-        const keep = (marker: AgentSessionResumeMarker) => deps.savedByNewerOrca(marker.sessionId)
+        const keep = (marker: AgentSessionResumeMarker) => {
+          const kept = deps.savedByNewerOrca(marker.sessionId)
+          if (!kept) {
+            assertMutationSupported?.(marker.sessionId)
+          }
+          return kept
+        }
         return (await deps.capsule?.clearAll(deps.now(), keep)) ?? 0
       })
   }

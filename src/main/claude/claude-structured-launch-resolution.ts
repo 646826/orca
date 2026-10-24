@@ -86,6 +86,7 @@ export function claudeStructuredPermissionOptions(
 }
 
 export type ClaudeStructuredLaunch = {
+  contextDeliveryVersion?: string | null
   /** Always Orca's resolved user CLI: the SDK's bundled binaries are excluded from the install. */
   pathToClaudeCodeExecutable: string
   account?: ClaudeStructuredInvocation['account']
@@ -113,7 +114,7 @@ export type ClaudeStructuredLaunchPartDeps = {
   /** Host attachment store outside the workspace, granted to the agent at launch. */
   attachmentDirectory?: string
   /** Omit version-gated flags when support cannot be checked. */
-  cliFlags?: Pick<ClaudeCliFlagSupport, 'supports'>
+  cliFlags?: Pick<ClaudeCliFlagSupport, 'supports' | 'observedVersion'>
   /** Whether Claude wrote a transcript for this id; defaults to the transcript resolver. */
   hasTranscript?: (input: {
     providerSessionId: string
@@ -239,6 +240,7 @@ export function claudeStructuredLaunchPart(
     }
     return {
       launch: {
+        contextDeliveryVersion: (await deps.cliFlags?.observedVersion?.({ command, cwd })) ?? null,
         pathToClaudeCodeExecutable: command,
         account,
         options: {

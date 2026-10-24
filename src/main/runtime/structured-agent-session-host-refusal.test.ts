@@ -26,8 +26,13 @@ import {
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
 import { recordingStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 
 let root: string
+let admission: ProfileStateRuntimeAdmission
 let log = recordingStructuredAgentSessionLogger()
 const openFailureLogs = () =>
   log.entries.filter((entry) => entry.fields.scope === 'journal-database-open')
@@ -70,11 +75,13 @@ async function digest(path: string): Promise<string> {
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-journal-host-refusal-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   log = recordingStructuredAgentSessionLogger()
 })
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime().catch(() => undefined)
+  admission.release()
   vi.restoreAllMocks()
   await rm(root, { recursive: true, force: true })
 })

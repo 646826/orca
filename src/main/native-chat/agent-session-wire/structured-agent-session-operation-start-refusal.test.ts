@@ -14,39 +14,64 @@ import { recordingStructuredAgentSessionLogger } from './structured-agent-sessio
 const SESSION = 'session-1'
 
 describe('an operation whose agent start throws', () => {
-  it('is refused as a failed restart, with the error only in the log', async () => {
-    const log = recordingStructuredAgentSessionLogger()
-    const cause = new Error('EACCES: permission denied, open /Users/me/.orca/leases.json')
-    const context = {
-      deps: { logger: log.logger },
-      sessions: new Map(),
-      serialize: (_sessionId: string, task: () => Promise<unknown>) => task(),
-      tasks: { trackAttach: (start: Promise<unknown>) => start },
-      runtimeState: {
-        acquireAborts: new StructuredAgentSessionAcquireAborts(),
-        startFlights: new StructuredAgentSessionStartFlights(),
-        startupAttempts: { begin: () => {}, abandon: () => {} }
-      },
-      reconcileLeases: () => Promise.reject(cause)
-    }
-
-    const refused = await startStructuredAgentSessionAgentForOperation(
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a partial context double; the start throws at `reconcileLeases`, before any member past its registration is read.
-      context as unknown as StructuredAgentSessionAttachContext,
-      SESSION
-    )
-
-    expect(refused).toEqual({
-      ok: false,
-      refusal: {
-        code: 'agent_session_owner_restart_failed',
-        message: "The agent couldn't restart."
+  it.each(['scope', 'reconcile'] as const)(
+    'refuses a %s read failure without moving admission out of its queue',
+    async (failureAt) => {
+      const log = recordingStructuredAgentSessionLogger()
+      const cause = new Error('EACCES: permission denied, open /Users/me/.orca/leases.json')
+      let inLane = false
+      const context = {
+        deps: {
+          logger: log.logger,
+          store: {
+            conversations: {
+              membership: () => {
+                expect(inLane).toBe(true)
+                if (failureAt === 'scope') {
+                  throw cause
+                }
+                return null
+              },
+              read: () => null
+            }
+          }
+        },
+        sessions: new Map(),
+        serialize: (_sessionId: string, task: () => Promise<unknown>) => {
+          inLane = true
+          try {
+            return task()
+          } finally {
+            inLane = false
+          }
+        },
+        tasks: { trackAttach: (start: Promise<unknown>) => start },
+        runtimeState: {
+          acquireAborts: new StructuredAgentSessionAcquireAborts(),
+          startFlights: new StructuredAgentSessionStartFlights(),
+          startupAttempts: { begin: () => {}, abandon: () => {} }
+        },
+        reconcileLeases: () => Promise.reject(cause)
       }
-    })
-    expect(log.entries.map((entry) => entry.fields)).toEqual([
-      { scope: 'operation-agent-start', sessionId: SESSION, error: cause }
-    ])
-  })
+
+      const refused = await startStructuredAgentSessionAgentForOperation(
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a partial context double; the start throws in its declared scope reader or reconcileLeases before later dependencies are read.
+        context as unknown as StructuredAgentSessionAttachContext,
+        SESSION
+      )
+
+      expect(refused).toEqual({
+        ok: false,
+        refusal: {
+          code: 'agent_session_owner_restart_failed',
+          message: "The agent couldn't restart."
+        }
+      })
+      expect(log.entries.map((entry) => entry.fields)).toEqual([
+        { scope: 'operation-agent-start', sessionId: SESSION, error: cause }
+      ])
+    }
+  )
 })
 
 describe('an option picked while the chat is at rest', () => {

@@ -26,8 +26,15 @@ export function finalizeHostTerminalSnapshot(
   if (snapshot.tabGroups !== undefined || snapshot.tabGroupLayout !== undefined) {
     throw new Error('This fixture only supports ungrouped terminal snapshot finalization')
   }
+  const terminals = snapshot.tabs.filter((tab) => tab.type === 'terminal')
+  if (snapshot.activeTabType === 'conversation' || terminals.length !== snapshot.tabs.length) {
+    throw new Error('This fixture only supports terminal rows')
+  }
   return finalizeRuntimeMobileSessionTabsResult(
-    { snapshot, tabs: snapshot.tabs },
+    {
+      snapshot: { ...snapshot, activeTabType: snapshot.activeTabType, tabs: terminals },
+      tabs: terminals
+    },
     { sanitizeGroups: () => undefined }
   )
 }

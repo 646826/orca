@@ -1,3 +1,4 @@
+import type { NativeConversationCapabilityObservation } from '../native-chat/conversations/conversation-native-capabilities'
 import { agentSessionFailureFact, providerDiagnostic } from '../../shared/agent-session-failure'
 import { agentSessionFailureWords } from '../../shared/agent-session-failure-words'
 import type {
@@ -21,6 +22,7 @@ import type { StructuredAgentSessionEventSink } from '../native-chat/agent-sessi
 import type { StructuredAgentSessionProviderOpenResult } from '../native-chat/agent-session-wire/structured-agent-session-provider-open-contract'
 
 export type AcpStructuredSession = {
+  contextDeliveryObservation?: NativeConversationCapabilityObservation
   events?: StructuredAgentSessionEventSink
   sessionId: string
   fence: number

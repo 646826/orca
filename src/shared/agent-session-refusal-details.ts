@@ -43,6 +43,7 @@ export const AGENT_SESSION_REFUSAL_REASONS = {
     'cancelNotSaved',
     /** The message names a chat attachment the host no longer stores. */
     'attachmentExpired',
+    'attachmentScopeUnverified',
     // The conversation's state
     'conversationCleared',
     /** Older hosts only: a /clear that never committed; its replacement may not exist. */
@@ -50,6 +51,10 @@ export const AGENT_SESSION_REFUSAL_REASONS = {
     /** Older hosts only: a command blocked behind that /clear. */
     'conversationCommandUnconfirmed',
     'conversationCommandInFlight',
+    'conversationSwitchInFlight',
+    'conversationClearInFlight',
+    'conversationClearRequired',
+    'conversationParticipantParked',
     'handoffInFlight',
     'turnActive',
     'continuationSuperseded',
@@ -91,6 +96,8 @@ export const AGENT_SESSION_REFUSAL_REASONS = {
     'agentCommandNotRunnable',
     /** The runtime Orca installs for the agent is not installed on this host. */
     'runtimeNotInstalled',
+    'conversationStartupTrustRequired',
+    'conversationNativeRebuildRequired',
     /** The agent started, then Orca could not open the chat's conversation for it. */
     'attachFailed'
   ],

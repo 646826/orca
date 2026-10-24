@@ -1,5 +1,5 @@
 import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
-import { projectCodexSessionOptions } from './codex-structured-service-tier'
+import { projectCodexSessionOptions } from './codex-structured-message-options'
 import {
   applyCodexStructuredSessionOption,
   readLiveCodexSessionOptions

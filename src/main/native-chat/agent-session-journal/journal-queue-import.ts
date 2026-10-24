@@ -1,3 +1,4 @@
+import { preserveLegacyQueuedMessageEvidence } from './queued-message-origin'
 // Bringing the `queued_messages` rows earlier builds wrote into the journal. Those rows are the only
 // record of the work this owes, so nothing else stores it: it ends once no readable row is left.
 // Until then the queue's one view reads each through the fold's own classification, so a card reads
@@ -182,11 +183,16 @@ export class LegacyQueuedCards {
           'DELETE FROM queued_messages WHERE session_id = ? AND message_id = ?'
         )
         for (const messageId of messageIds) {
+          preserveLegacyQueuedMessageEvidence(db, this.deps.sessionId, messageId)
           remove.run(this.deps.sessionId, messageId)
         }
       },
       committed: () => {
         this.revision += messageIds.length > 0 ? 1 : 0
+      },
+      rolledBack: () => {
+        this.stored = null
+        this.viewed = null
       }
     }
   }

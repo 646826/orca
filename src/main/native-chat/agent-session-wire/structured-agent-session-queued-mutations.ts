@@ -1,3 +1,4 @@
+import { conversationSwitchMutationRefusal } from './structured-conversation-switch-admission'
 // `agentSession.queuedMessageSend` / `agentSession.queuedMessageDelete` / Resume: mutations of
 // the conversation's queued cards. Each action's command receipt commits with the journal row it
 // writes, so a lost acknowledgement replays from that receipt and the row it points at, never
@@ -104,7 +105,22 @@ export function sendQueuedStructuredAgentMessage(
       // FIFO order and the stored hold, which the consume below clears).
       const record = context.deps.store.getRecord(ctx.sessionId)
       const work = contextStructuredAgentSessionCurrentWork(ctx)
-      const hold = structuredQueueHold({ record, work })
+      const hold = structuredQueueHold({
+        record,
+        work,
+        conversationRoute: context.deps.store.conversations.route(ctx.sessionId)
+      })
+      if (hold === 'switching') {
+        const refusal = conversationSwitchMutationRefusal(
+          context.deps.store,
+          ctx.sessionId,
+          'agentSession.queuedMessageSend',
+          { messageId }
+        )
+        if (refusal) {
+          return { ok: false, refusal }
+        }
+      }
       if (hold === 'blocked') {
         return structuredAgentSessionSendBlock(record) ?? invalid('This conversation cannot send.')
       }

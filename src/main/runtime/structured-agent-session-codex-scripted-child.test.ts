@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { codexScriptedChild } from '../codex/codex-scripted-child.test-fixture'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import {
@@ -17,6 +21,8 @@ import {
 } from './structured-agent-session-runtime'
 
 let root: string | undefined
+
+let admission: ProfileStateRuntimeAdmission | undefined
 const caller = { callerKey: 'scripted-codex-test' }
 let operation = 0
 
@@ -34,6 +40,8 @@ function envelope(method: string, fence: number, fields: Record<string, unknown>
 }
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (root) {
     await rm(root, { recursive: true, force: true })
   }
@@ -41,6 +49,7 @@ afterEach(async () => {
 
 async function attachedHost(child: ScriptedAgentChild) {
   root = await mkdtemp(join(tmpdir(), 'orca-scripted-codex-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   const host = await ensureStructuredAgentSessionHost({
     logger: createStructuredAgentSessionLogger(),
     stateDirectory: root,

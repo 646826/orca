@@ -174,19 +174,19 @@ export function applyActiveStateUpdates(context: ActiveStateContext) {
       : state.activeFileIdByWorktree
 
   const isActiveWorktree = state.activeWorktreeId === worktreeId
-  const focusIntentVisibleTabType =
-    navigationIntentTab?.type === 'agent-session' && intentMirroredAgent
-      ? ('agent-session' as const)
-      : navigationIntentTab?.type === 'browser' && intentBrowserWorkspaceId
-        ? ('browser' as const)
-        : navigationIntentTab?.type === 'terminal' && intentTerminalId
-          ? ('terminal' as const)
-          : intentEditorFileId
-            ? ('editor' as const)
-            : null
+  const focusIntentVisibleTabType = intentMirroredAgent
+    ? toVisibleTabType(intentMirroredAgent.unifiedTab)
+    : navigationIntentTab?.type === 'browser' && intentBrowserWorkspaceId
+      ? ('browser' as const)
+      : navigationIntentTab?.type === 'terminal' && intentTerminalId
+        ? ('terminal' as const)
+        : intentEditorFileId
+          ? ('editor' as const)
+          : null
   const snapshotVisibleTabType =
-    snapshot.activeTabType === 'agent-session' && activeMirroredAgentTabId
-      ? ('agent-session' as const)
+    (snapshot.activeTabType === 'agent-session' || snapshot.activeTabType === 'conversation') &&
+    activeMirroredAgentTabId
+      ? snapshot.activeTabType
       : snapshot.activeTabType === 'browser' && nextActiveBrowserWorkspaceId
         ? ('browser' as const)
         : snapshot.activeTabType === 'terminal' && nextActiveTerminalId
@@ -197,22 +197,24 @@ export function applyActiveStateUpdates(context: ActiveStateContext) {
             : null
   const currentVisibleTabType =
     state.activeTabTypeByWorktree[worktreeId] ?? (isActiveWorktree ? state.activeTabType : null)
-  const currentVisibleTabTypeStillValid =
-    currentVisibleStructuredTabId !== null
+  const currentVisibleStructuredTab = nextUnifiedTabs?.find(
+    (tab) => tab.id === currentVisibleStructuredTabId
+  )
+  const currentVisibleTabTypeStillValid = currentVisibleStructuredTab
+    ? toVisibleTabType(currentVisibleStructuredTab)
+    : currentVisibleTabType === 'agent-session' &&
+        currentVisibleUnifiedTabId &&
+        nextUnifiedTabs?.some(
+          (tab) => tab.id === currentVisibleUnifiedTabId && tab.contentType === 'agent-session'
+        )
       ? ('agent-session' as const)
-      : currentVisibleTabType === 'agent-session' &&
-          currentVisibleUnifiedTabId &&
-          nextUnifiedTabs?.some(
-            (tab) => tab.id === currentVisibleUnifiedTabId && tab.contentType === 'agent-session'
-          )
-        ? ('agent-session' as const)
-        : currentVisibleTabType === 'browser' && currentActiveBrowserStillExists
-          ? ('browser' as const)
-          : currentVisibleTabType === 'editor' && currentActiveEditorStillExists
-            ? ('editor' as const)
-            : currentVisibleTabType === 'terminal' && currentActiveTerminalStillExists
-              ? ('terminal' as const)
-              : null
+      : currentVisibleTabType === 'browser' && currentActiveBrowserStillExists
+        ? ('browser' as const)
+        : currentVisibleTabType === 'editor' && currentActiveEditorStillExists
+          ? ('editor' as const)
+          : currentVisibleTabType === 'terminal' && currentActiveTerminalStillExists
+            ? ('terminal' as const)
+            : null
   const activeUnifiedTab =
     nextActiveUnifiedTabId && nextUnifiedTabs
       ? (nextUnifiedTabs.find((tab) => tab.id === nextActiveUnifiedTabId) ?? null)

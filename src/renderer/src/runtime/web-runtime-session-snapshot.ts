@@ -37,8 +37,10 @@ export async function refreshWebRuntimeSessionTabsSnapshot(
     }
     afterCurrentInFlight?: boolean
     errorMode?: 'warn' | 'throw'
+    assertCurrent?: () => void
   } = {}
 ): Promise<void> {
+  options.assertCurrent?.()
   // Why one await up front: the apply below must not yield between the list and its receipt.
   const [
     { applyWebSessionTabsSnapshot },
@@ -61,11 +63,13 @@ export async function refreshWebRuntimeSessionTabsSnapshot(
     expectedEnvironmentPairingRevision
   )
   try {
+    options.assertCurrent?.()
     if (options.acceptCurrentSnapshot) {
       const { acceptReplayedWebSessionTabsSnapshot } =
         await import('./web-session-tabs-sync/tracking-lifecycle')
       // Why: the host snapshot may have arrived before structured create returned;
       // re-accept its current version after the exact provisional handoff is known.
+      options.assertCurrent?.()
       acceptReplayedWebSessionTabsSnapshot(environmentId, worktreeId)
     }
     const listSessionTabs =
@@ -79,6 +83,7 @@ export async function refreshWebRuntimeSessionTabsSnapshot(
       environmentId,
       worktreeId,
       load: async () => {
+        options.assertCurrent?.()
         const response = await callEnvironment({
           method: 'session.tabs.list',
           params: {
@@ -94,6 +99,7 @@ export async function refreshWebRuntimeSessionTabsSnapshot(
         }
       }
     })
+    options.assertCurrent?.()
     if (options.confirmAgentSessionHandoff) {
       const { confirmWebAgentSessionHandoffAfterCreate } =
         await import('./web-agent-session-handoff')
@@ -126,6 +132,7 @@ export async function refreshWebRuntimeSessionTabsSnapshot(
         getCurrentState: () => useAppStore.getState()
       }
     )
+    options.assertCurrent?.()
     if (
       !recovered ||
       getRuntimeEnvironmentRevision(environmentId) !== expectedEnvironmentPairingRevision
@@ -145,6 +152,7 @@ export async function refreshWebRuntimeSessionTabsSnapshot(
       : WEB_SESSION_TABS_FRAME_OUTRANKED
     const settleMirror = applyWebSessionTabsStorePatch(
       (state) => {
+        options.assertCurrent?.()
         // Why: eager refreshes can resolve after the user switched worktrees; update tabs without stealing focus.
         const patch = decision.apply
           ? applyWebSessionTabsSnapshot(state, recovered, environmentId)

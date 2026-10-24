@@ -1,3 +1,4 @@
+import { captureConversationStartScope } from './structured-conversation-start-scope'
 import { isDeepStrictEqual } from 'node:util'
 import { abortSignalReason } from '../../../shared/abort-signal-reason'
 import type {
@@ -6,7 +7,8 @@ import type {
 } from '../../../shared/agent-session-record'
 import {
   AgentSessionPreSpawnError,
-  isAgentSessionPreSpawnError
+  isAgentSessionPreSpawnError,
+  type StructuredAgentSessionAcquireInput
 } from './structured-agent-session-adapter'
 import { rethrowAfterAgentSessionAcquisitionCleanup } from './structured-agent-session-provider-exit-proof'
 import { journalIdentityFor } from './structured-agent-session-attach'
@@ -33,13 +35,26 @@ export async function acquireOwner(
   record: AgentSessionRecord
   acquisitionGeneration: string
 }> {
+  const conversationOrigin = input.store.conversations.captureAcquisitionOrigin(record.sessionId)
   const fence = record.lease.runtimeFence
   const spawnToken = record.lease.reservedSpawnToken
   if (!spawnToken) {
     throw new Error('agent_session_ownership_unknown')
   }
   try {
+    let evidenceLaunch: StructuredAgentSessionAcquireInput['evidenceLaunch']
     try {
+      captureConversationStartScope(
+        input.store,
+        record.sessionId,
+        input.expectedConversationOperationKey
+      )
+      evidenceLaunch = input.captureConversationEvidenceLaunch?.(
+        record.sessionId,
+        fence,
+        input.acquireSignal,
+        input.expectedConversationOperationKey ?? null
+      )
       await input.onAcquiring?.()
     } catch (error) {
       throw new AgentSessionPreSpawnError(error)
@@ -48,6 +63,15 @@ export async function acquireOwner(
     // Right before the spawn: a close, Stop or quit that landed during any wait above launches nothing.
     if (input.acquireSignal?.aborted) {
       throw new AgentSessionPreSpawnError(abortSignalReason(input.acquireSignal))
+    }
+    try {
+      captureConversationStartScope(
+        input.store,
+        record.sessionId,
+        input.expectedConversationOperationKey
+      )
+    } catch (error) {
+      throw new AgentSessionPreSpawnError(error)
     }
     const attempt = mintStructuredAgentSessionStartupAttempt({
       record,
@@ -63,6 +87,7 @@ export async function acquireOwner(
     const progress = input.onStartupAttempt?.(attempt)
     const acquired = await input.adapter.acquire({
       ...attempt,
+      ...(evidenceLaunch ? { evidenceLaunch } : {}),
       ...(input.recordPhase ? { recordPhase: input.recordPhase } : {}),
       onSpawned: async (process) => {
         progress?.spawned()
@@ -86,8 +111,10 @@ export async function acquireOwner(
     }
     // The process owns the lease now; a handle the provider answers with is returned by `open`.
     const proved = await input.store.proveOwner({
+      ...(conversationOrigin ? { conversationOrigin } : {}),
       sessionId: record.sessionId,
       fence,
+      acquisitionGeneration: acquired.acquisitionGeneration,
       ...(acquired.link ? { link: acquired.link } : {}),
       now: input.now()
     })

@@ -129,3 +129,62 @@ it.each(['accepted', 'uncertain'] as const)(
     await adapter.closeAll()
   }
 )
+
+it('rechecks authority after waiting for a prior turn to open', async () => {
+  const codex = fakeCodexAppServer({ 'turn/start': () => ({ turn: { id: 'opening' } }) })
+  const adapter = await acquiredCodexAdapter({ codex, settlements: [] })
+  const connection = codex.connections[0]!
+  await adapter.dispatch({
+    sessionId: 'session-1',
+    clientMessageId: 'first',
+    fence: 7,
+    body: CODEX_TEST_USER_MESSAGE
+  })
+  let allowed = true
+  const beforeDispatch = vi.fn(async () => {
+    if (!allowed) {
+      throw new AgentSessionPreDispatchError('conversation-switch-frozen')
+    }
+  })
+  const waiting = adapter
+    .dispatch({
+      sessionId: 'session-1',
+      clientMessageId: 'later',
+      fence: 7,
+      body: CODEX_TEST_USER_MESSAGE,
+      beforeDispatch
+    })
+    .catch((error: unknown) => error)
+  try {
+    await vi.waitFor(() => expect(beforeDispatch).toHaveBeenCalledOnce())
+    allowed = false
+    startTurn(connection, 'opening')
+    expect(await waiting).toBeInstanceOf(AgentSessionPreDispatchError)
+    expect(connection.calls.filter((call) => call.method === 'turn/start')).toHaveLength(1)
+    expect(connection.calls.some((call) => call.method === 'turn/steer')).toBe(false)
+  } finally {
+    await adapter.closeAll()
+  }
+})
+
+it('observes the exact constructed native request before its write', async () => {
+  const codex = fakeCodexAppServer()
+  const adapter = await acquiredCodexAdapter({ codex, settlements: [] })
+  const observed: unknown[] = []
+  try {
+    await adapter.dispatch({
+      sessionId: 'session-1',
+      clientMessageId: 'observed',
+      fence: 7,
+      body: CODEX_TEST_USER_MESSAGE,
+      beforeContextDispatch: async (value) => {
+        observed.push(structuredClone(value))
+      }
+    })
+    const request = codex.connections[0]!.calls.find((call) => call.method === 'turn/start')
+    expect(observed).toHaveLength(1)
+    expect(observed[0]).toEqual({ transport: 'codex', payload: request?.params })
+  } finally {
+    await adapter.closeAll()
+  }
+})

@@ -231,6 +231,14 @@ export type NativeChatBlock =
 /** A transcript row. Structured rows carry the journal row's producer linkage, so
  *  "who said this" survives the projection; terminal-backed rows carry none. */
 export type NativeChatMessage = AgentJournalProducerLinkage & {
+  /** Host-attributed aggregate history; actions and media must keep this original owner. */
+  conversationSource?: {
+    sessionId: string
+    segmentId: string
+    epoch: string
+    itemId: string
+    revision: number
+  }
   /** Stable across re-reads/appends so the assembler and the renderer list can
    *  dedup and key by it. */
   id: string

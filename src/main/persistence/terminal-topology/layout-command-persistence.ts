@@ -45,6 +45,30 @@ function writingOnly<T>(
   return () => ({ ...mutate(), writtenHostIds: hostIds })
 }
 
+type AdmittedLayoutMutation<T> = { admitted: true; value: T } | { admitted: false; error: unknown }
+
+function withLayoutAdmission<T>(
+  beforeMutation: (() => void) | undefined,
+  mutate: () => DurableProfileStateMutation<T>
+): () => DurableProfileStateMutation<AdmittedLayoutMutation<T>> {
+  return () => {
+    try {
+      beforeMutation?.()
+    } catch (error) {
+      return { value: { admitted: false, error }, persist: false, writtenHostIds: [] }
+    }
+    const mutation = mutate()
+    return { ...mutation, value: { admitted: true, value: mutation.value } }
+  }
+}
+
+function admittedLayoutValue<T>(result: AdmittedLayoutMutation<T>): T {
+  if (!result.admitted) {
+    throw result.error
+  }
+  return result.value
+}
+
 type LayoutCommandRuntime = Pick<
   StoreRuntimeState,
   | 'runDurableMutation'
@@ -84,6 +108,8 @@ export class LayoutCommandPersistence {
     command: LayoutCommand,
     hostIds: readonly string[] = [],
     run: {
+      /** Synchronous read-only host admission, rechecked before any queued mutation. */
+      beforeMutation?: () => void
       live?: LayoutLiveContext
       stopBeforeWrite?: (ptyIds: readonly string[]) => boolean
       onEffects?: (effects: LayoutEffects) => void
@@ -102,15 +128,15 @@ export class LayoutCommandPersistence {
         noteEffects: (noted) => (effects = noted)
       })
     )
+    const runAdmitted = (mutate: () => DurableProfileStateMutation<LayoutApplyOutcome>) =>
+      context.runtime
+        .runDurableMutation(withLayoutAdmission(run.beforeMutation, writingOnly(resolved, mutate)))
+        .then(admittedLayoutValue)
     // Switch point: a terminal close stands once applied, as the switch-off window shows it.
-    const applied: Promise<LayoutApplyOutcome> =
+    const applied =
       ORCA_LAYOUT_OWNER_IS_MAIN && context.writeLater && isTerminalClose(command)
-        ? keptOnWriteFailure(
-            (mutate) => context.runtime.runDurableMutation(mutate),
-            writingOnly(resolved, commit),
-            context.writeLater
-          )
-        : context.runtime.runDurableMutation(writingOnly(resolved, commit))
+        ? keptOnWriteFailure(runAdmitted, commit, context.writeLater)
+        : runAdmitted(commit)
     if (!run.onEffects) {
       return applied
     }
@@ -142,64 +168,78 @@ export class LayoutCommandPersistence {
 
   /** `renameTabs`: each partition's renames in one durable write of all; resolves those refused. */
   applyTabRenames(
-    batches: readonly { hostId: string; renames: readonly CommandOf<'renameTab'>[] }[]
+    batches: readonly { hostId: string; renames: readonly CommandOf<'renameTab'>[] }[],
+    /** Synchronous read-only host admission, rechecked before any queued mutation. */
+    beforeMutation?: () => void
   ): Promise<{ rename: CommandOf<'renameTab'>; code: LayoutRefusalCode }[]> {
     const context = this[layoutCommandPersistenceContext]
     const resolved = batches.map(({ hostId, renames }) => ({
       hostId: resolveHostId(hostId),
       renames
     }))
-    return context.runtime.runDurableMutation(
-      writingOnly(
-        resolved.map(({ hostId }) => hostId),
-        applyLayoutRenames(resolved, topologyCommitContext(context))
-      )
+    const commit = writingOnly(
+      resolved.map(({ hostId }) => hostId),
+      applyLayoutRenames(resolved, topologyCommitContext(context))
     )
+    return context.runtime
+      .runDurableMutation(withLayoutAdmission(beforeMutation, commit))
+      .then(admittedLayoutValue)
   }
 
   /** Moves editor tabs between workspaces of two partitions in one durable write of both. */
   moveTabToWorkspaceAcrossPartitions(
     command: CommandOf<'moveTabToWorkspace'>,
     fromHostId: string,
-    toHostId: string
+    toHostId: string,
+    /** Synchronous read-only host admission, rechecked before any queued mutation. */
+    beforeMutation?: () => void
   ): Promise<LayoutApplyOutcome> {
     const commit = topologyCommitContext(this[layoutCommandPersistenceContext])
     const [from, to] = [resolveHostId(fromHostId), resolveHostId(toHostId)]
     const { runtime } = this[layoutCommandPersistenceContext]
-    return runtime.runDurableMutation(() => {
-      const moved = moveTabAcrossPartitions(
-        {
-          hostId: from,
-          session: commit.getSession(from),
-          views: partitionEditorViewsOf(runtime, from)
-        },
-        { hostId: to, session: commit.getSession(to), views: partitionEditorViewsOf(runtime, to) },
-        command
+    return runtime
+      .runDurableMutation(
+        withLayoutAdmission(beforeMutation, () => {
+          const moved = moveTabAcrossPartitions(
+            {
+              hostId: from,
+              session: commit.getSession(from),
+              views: partitionEditorViewsOf(runtime, from)
+            },
+            {
+              hostId: to,
+              session: commit.getSession(to),
+              views: partitionEditorViewsOf(runtime, to)
+            },
+            command
+          )
+          if (!moved.sessions) {
+            return { value: moved.value, persist: false }
+          }
+          const viewRestores = moved.views
+            ? [
+                keepPartitionEditorViews(runtime, from, moved.views.from),
+                keepPartitionEditorViews(runtime, to, moved.views.to)
+              ]
+            : []
+          const sessionRestores = (
+            [
+              [from, moved.sessions.from],
+              [to, moved.sessions.to]
+            ] as const
+          ).map(([hostId, session]) =>
+            writeRestorable(
+              () => commit.getSession(hostId),
+              (value) =>
+                commit.markDirty(assignWorkspaceSessionPartition(commit.state, hostId, value)),
+              keepFrozen(hostId, session, commit)
+            )
+          )
+          const restores = [...viewRestores, ...sessionRestores]
+          return { value: moved.value, rollback: () => restores.forEach((restore) => restore()) }
+        })
       )
-      if (!moved.sessions) {
-        return { value: moved.value, persist: false }
-      }
-      const viewRestores = moved.views
-        ? [
-            keepPartitionEditorViews(runtime, from, moved.views.from),
-            keepPartitionEditorViews(runtime, to, moved.views.to)
-          ]
-        : []
-      const sessionRestores = (
-        [
-          [from, moved.sessions.from],
-          [to, moved.sessions.to]
-        ] as const
-      ).map(([hostId, session]) =>
-        writeRestorable(
-          () => commit.getSession(hostId),
-          (value) => commit.markDirty(assignWorkspaceSessionPartition(commit.state, hostId, value)),
-          keepFrozen(hostId, session, commit)
-        )
-      )
-      const restores = [...viewRestores, ...sessionRestores]
-      return { value: moved.value, rollback: () => restores.forEach((restore) => restore()) }
-    })
+      .then(admittedLayoutValue)
   }
 
   /**

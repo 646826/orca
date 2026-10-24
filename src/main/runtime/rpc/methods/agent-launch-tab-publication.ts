@@ -113,31 +113,26 @@ export function withPlacement(result: AgentLaunchResult, view: AgentLaunchView):
   return placement ? { ...result, placement } : result
 }
 
-/** The record already holds this operation: whatever it answers (a replay, a conflict, a recorded
- *  failure), nothing new runs, so no tab is shown for it and no one moves. */
-function isRecordedOperation(params: AgentLaunchParams, context: RpcContext): boolean {
-  if (!params.operationId || !context.caller) {
-    return false
-  }
-  const store = context.runtime.openedAgentSessionRecordStore()
-  return (
-    store !== null &&
-    store.getOperationRow(agentLaunchOperationCallerKey(context), params.operationId) !== null
-  )
-}
-
-/** Never throws: the early tab is a view, and a launch must not fail over one. */
-export function publishEarlyTab(
+/** An unavailable owner cannot prove that a restart's operation is absent. */
+export async function publishEarlyTab(
   params: AgentLaunchParams,
   context: RpcContext
 ): Promise<EarlyAgentLaunchTab | null> {
-  if (isRecordedOperation(params, context)) {
-    return Promise.resolve(null)
-  }
-  return publishAgentLaunchTabEarly(params, context).catch((error: unknown) => {
+  try {
+    if (params.operationId && context.caller) {
+      const eligibility = await context.runtime.readAgentLaunchPublicationEligibility({
+        callerKey: agentLaunchOperationCallerKey(context),
+        operationId: params.operationId
+      })
+      if (eligibility !== 'unrecorded') {
+        return null
+      }
+    }
+    return await publishAgentLaunchTabEarly(params, context)
+  } catch (error) {
     console.warn('[agent-launch] could not show the launch tab early', error)
     return null
-  })
+  }
 }
 
 export async function publishAgentLaunchTabEarly(

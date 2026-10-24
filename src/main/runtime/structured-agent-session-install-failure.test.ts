@@ -6,6 +6,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { JournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database'
 import type * as ModelCatalogWiring from './structured-agent-model-catalog-wiring'
 import {
@@ -32,6 +36,8 @@ vi.mock('./structured-agent-model-catalog-wiring', async (importOriginal) => {
 
 let root: string
 
+let admission: ProfileStateRuntimeAdmission | undefined
+
 function install(): ReturnType<typeof ensureStructuredAgentSessionHost> {
   return ensureStructuredAgentSessionHost({
     logger: createStructuredAgentSessionLogger(),
@@ -47,10 +53,13 @@ function install(): ReturnType<typeof ensureStructuredAgentSessionHost> {
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-structured-install-failure-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
 })
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime().catch(() => undefined)
+  admission?.release()
+  admission = undefined
   vi.restoreAllMocks()
   await rm(root, { recursive: true, force: true })
 })

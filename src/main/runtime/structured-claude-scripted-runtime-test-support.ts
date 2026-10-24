@@ -3,6 +3,10 @@
 
 import { providerDiagnostic, withProviderDiagnostic } from '../../shared/agent-session-failure'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -75,6 +79,7 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
     releaseStalls = resolve
   })
   let root: string | null = null
+  let admission: ProfileStateRuntimeAdmission | undefined
   let host: StructuredAgentSessionHost | null = null
   let operations = 0
 
@@ -235,6 +240,7 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
       children.filter((entry) => entry.sessionId === sessionId),
     install: async (): Promise<StructuredAgentSessionHost> => {
       root ??= await mkdtemp(join(tmpdir(), 'orca-scripted-claude-runtime-'))
+      admission ??= acquireProfileStateRuntimeAdmission(root)
       await mkdir(join(root, 'claude-home'), { recursive: true })
       const directory = root
       host = await ensureStructuredAgentSessionHost({
@@ -277,6 +283,8 @@ export function createScriptedClaudeRuntime(sessionIds: readonly string[]) {
     dispose: async (): Promise<void> => {
       releaseStalls()
       await stopStructuredAgentSessionRuntime()
+      admission?.release()
+      admission = undefined
       if (root) {
         await rm(root, { recursive: true, force: true })
         root = null

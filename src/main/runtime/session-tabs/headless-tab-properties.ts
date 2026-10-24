@@ -44,7 +44,8 @@ export abstract class RuntimeHeadlessTabProperties extends OrcaRuntimeWithCloseH
       isPinned?: boolean
       viewMode?: 'terminal' | 'chat'
       customTitle?: string | null
-    }
+    },
+    assertAgentSessionMutation?: (sessionId: string) => void
   ): Promise<{ updated: true }> {
     const explicitWorktreeId = this.getExplicitSessionWorktreeIdSelector(worktreeSelector)
     const worktreeId =
@@ -55,6 +56,15 @@ export abstract class RuntimeHeadlessTabProperties extends OrcaRuntimeWithCloseH
     const hostTabId = snapshot
       ? (this.resolveMobileSessionHostTabId(snapshot, args.tabId) ?? args.tabId)
       : args.tabId
+    const assertMutation = () => {
+      const tab = this.mobileSessionTabsByWorktree
+        .get(worktreeId)
+        ?.tabs.find((row) => row.id === hostTabId)
+      if (tab?.type === 'agent-session') {
+        assertAgentSessionMutation?.(tab.sessionId)
+      }
+    }
+    assertMutation()
     // Why by tab: a sleeping or starting pane has no handle for terminal.rename to name (#29975).
     const customTitle =
       args.customTitle === undefined ? undefined : args.customTitle?.trim() || null
@@ -62,6 +72,7 @@ export abstract class RuntimeHeadlessTabProperties extends OrcaRuntimeWithCloseH
     if (ORCA_LAYOUT_OWNER_IS_MAIN && (await this.setMainTabProps(worktreeId, hostTabId, args))) {
       return { updated: true }
     }
+    assertMutation()
     if (this.getAvailableAuthoritativeWindow()) {
       if (args.color !== undefined || args.isPinned !== undefined || args.viewMode !== undefined) {
         throw Object.assign(

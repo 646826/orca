@@ -1,3 +1,4 @@
+import { handleCodexEvidenceRequest } from './codex-conversation-evidence'
 import type { CodexAppServerServerRequest } from './codex-app-server-connection'
 import { disposeCodexServerRequest } from './codex-server-request-disposition'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
@@ -65,6 +66,9 @@ export function deliverCodexServerRequest(
   emit: EmitCodexEvent
 ): CodexJournalTranslationAdmission {
   if (!session) {
+    return { accepted: true }
+  }
+  if (handleCodexEvidenceRequest(session, request)) {
     return { accepted: true }
   }
   const disposition = disposeCodexServerRequest(session.prompts, session.connection, request)

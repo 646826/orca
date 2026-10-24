@@ -1,3 +1,8 @@
+import {
+  seedUploadTestSessions,
+  commitTestUploadOwner
+} from './agent-session-upload-provenance.test-fixture'
+import { createAgentSessionUploadOwnership } from './agent-session-upload-provenance'
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -65,8 +70,11 @@ let recorded: Set<string> | null
 
 beforeEach(async () => {
   stateDirectory = await mkdtemp(join(tmpdir(), 'orca-attachment-sweep-'))
+  await seedUploadTestSessions(stateDirectory, ['session-1', 'session-2'])
+  db = openTestJournalHostDatabase(stateDirectory).db
   store = new AgentSessionAttachmentStore(agentSessionAttachmentStoreRoot(stateDirectory), {
-    hasSession: () => true
+    hasSession: (id) => ['session-1', 'session-2'].includes(id),
+    ownership: createAgentSessionUploadOwnership(() => db)
   })
   db = openTestJournalHostDatabase(stateDirectory).db
   recorded = new Set(['session-1', 'session-2'])
@@ -93,6 +101,9 @@ async function seedUpload(
   const uploadDir = join(store.rootDir, uploadId)
   await mkdir(uploadDir, { recursive: true })
   await writeFile(join(uploadDir, file), 'bytes')
+  if (file !== AGENT_SESSION_ATTACHMENT_PART_FILE) {
+    commitTestUploadOwner(db, { sessionId: 'session-1', uploadId, name: file, byteLength: 5 })
+  }
   const at = new Date(NOW - ageMs)
   await utimes(uploadDir, at, at)
   return join(uploadDir, file)
@@ -155,7 +166,9 @@ describe('sweepAgentSessionAttachments', () => {
   it.each(['contents', 'root', 'prune'] as const)(
     'keeps bytes and claims across an uncertain %s read and a healthy retry',
     async (boundary) => {
-      const path = await store.storeFile('sent.png', Buffer.from('bytes'))
+      const path = await store.storeFile('sent.png', Buffer.from('bytes'), {
+        sessionId: 'session-1'
+      })
       const old = new Date(NOW - OLD)
       await utimes(dirname(path), old, old)
       claim('session-1', path)

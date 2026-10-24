@@ -7,6 +7,8 @@
 // serialized step, so there is no loop state to disagree with the journal.
 
 import { randomUUID } from 'node:crypto'
+import type { ConversationSessionRoute } from '../../../shared/conversation-wire'
+import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import {
   QUEUED_MESSAGE_PAUSED_SEND_FAILED,
@@ -71,13 +73,20 @@ function oldestActionableQueuedMessage(
  * to a child this host no longer runs and holds nothing. Host-local vocabulary —
  * never on the wire.
  */
-export type StructuredQueueHold = 'blocked' | 'working' | 'prompt'
+export type StructuredQueueHold = 'blocked' | 'working' | 'prompt' | 'switching'
 
 /** What the queue's gate reads: the record, and the host's projection of current work
  *  (`structuredAgentSessionCurrentWork`), so an ended generation's leftovers hold nothing. */
 export type StructuredQueueGateInput = {
   record: AgentSessionRecord | null
   work: StructuredAgentSessionCurrentWork
+  conversationRoute?: ConversationSessionRoute
+}
+
+export function conversationQueueHeld(route: ConversationSessionRoute | undefined): boolean {
+  return (
+    route !== undefined && route.role !== 'unbound' && (route.switching || route.role !== 'active')
+  )
 }
 
 export function structuredQueueHold(input: StructuredQueueGateInput): StructuredQueueHold | null {
@@ -85,6 +94,9 @@ export function structuredQueueHold(input: StructuredQueueGateInput): Structured
   // clear superseded. One rule, the immediate path's own.
   if (structuredAgentSessionSendBlock(input.record)) {
     return 'blocked'
+  }
+  if (conversationQueueHeld(input.conversationRoute)) {
+    return 'switching'
   }
   // `prompt` outranks `working`: it is the one wait Send-now may not override,
   // so a prompt raised mid-turn must not read as merely `working`.
@@ -140,7 +152,7 @@ export function shouldQueueStructuredAgentSessionSend(
  */
 export async function maybeQueueStructuredAgentSessionSend(
   context: {
-    deps: { store: { getRecord: (sessionId: string) => AgentSessionRecord | null } }
+    deps: { store: Pick<AgentSessionRecordStore, 'getRecord' | 'conversations'> }
   },
   ctx: Pick<
     AgentSessionTurnContext,
@@ -191,6 +203,7 @@ export async function maybeQueueStructuredAgentSessionSend(
     !shouldQueueStructuredAgentSessionSend({
       journal: ctx.journal,
       record: context.deps.store.getRecord(ctx.sessionId),
+      conversationRoute: context.deps.store.conversations.route(ctx.sessionId),
       work: contextStructuredAgentSessionCurrentWork(ctx)
     })
   ) {
@@ -240,6 +253,7 @@ export async function maybeQueueStructuredAgentSessionSend(
 export type QueuedMessageDrainDeps = {
   sessions: ReadonlyMap<string, StructuredAgentSessionHostSession>
   getRecord: (sessionId: string) => AgentSessionRecord | null
+  conversationRoute: (sessionId: string) => ConversationSessionRoute
   serialize: <T>(sessionId: string, task: () => Promise<T>) => Promise<T>
   conversationFence: (sessionId: string) => number
   /** The host's projection of the chat's current work (`structuredAgentSessionCurrentWork`). */
@@ -319,7 +333,14 @@ export class StructuredAgentSessionQueuedMessageDrain {
     // Whatever clears a hold publishes or commits, which re-derives this step.
     const record = this.deps.getRecord(sessionId)
     const work = this.deps.currentWork(sessionId)
-    const next = work ? nextStructuredQueuedMessage({ journal, record, work }) : null
+    const next = work
+      ? nextStructuredQueuedMessage({
+          journal,
+          record,
+          work,
+          conversationRoute: this.deps.conversationRoute(sessionId)
+        })
+      : null
     if (this.disposed || !next) {
       return
     }

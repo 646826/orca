@@ -34,6 +34,7 @@ export function wireStructuredAgentSessionQueuedMessages(
   const drain = new StructuredAgentSessionQueuedMessageDrain({
     sessions,
     getRecord: (sessionId) => context().deps.store.getRecord(sessionId),
+    conversationRoute: (sessionId) => context().deps.store.conversations.route(sessionId),
     serialize: (sessionId, task) => context().serialize(sessionId, task),
     conversationFence: (sessionId) =>
       structuredAgentSessionConversationFence(context().deps.store, sessionId),

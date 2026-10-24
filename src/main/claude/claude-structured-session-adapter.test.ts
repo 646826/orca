@@ -287,6 +287,7 @@ describe('ClaudeStructuredSessionAdapter.acquire', () => {
     expect(settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-1',
+      originCorrelation: 'exact',
       providerIdentity: {
         provider: 'claude',
         sessionId: PROVIDER_SESSION_ID,

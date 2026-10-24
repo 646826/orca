@@ -42,6 +42,7 @@ const TAB_ID_RULES: Record<TabContentType, 'terminal' | 'kept'> = {
   'conflict-review': 'kept',
   'check-details': 'kept',
   'agent-session': 'kept',
+  conversation: 'kept',
   browser: 'kept',
   simulator: 'kept'
 }

@@ -23,6 +23,10 @@ import {
 } from './structured-agent-session-runtime'
 import { createStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import { openAgentSessionRecordStoreOnce } from './agent-session-record-store-slot'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 
 vi.mock('../ai-vault/session-scanner-service-spawn', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -34,6 +38,7 @@ const { AI_VAULT_METHODS } = await import('./rpc/methods/ai-vault')
 const { admitAgentLaunchOperation } = await import('./rpc/methods/agent-launch-replay')
 
 let stateDirectory: string
+let admission: ProfileStateRuntimeAdmission
 let heldChanges: boolean[]
 let stopListening: () => void
 
@@ -64,6 +69,14 @@ const runtime = {
         logger: createStructuredAgentSessionLogger()
       })
     ).store,
+  openAgentLaunchLedger: async () =>
+    (
+      await openAgentSessionRecordStoreOnce({
+        stateDirectory,
+        hostId: 'local',
+        logger: createStructuredAgentSessionLogger()
+      })
+    ).launchLedger,
   listAiVaultSessions: async () => ({
     sessions: [],
     issues: [],
@@ -98,6 +111,7 @@ async function recordChat(host: StructuredAgentSessionHost): Promise<void> {
 
 beforeEach(async () => {
   stateDirectory = await mkdtemp(join(tmpdir(), 'orca-held-signal-'))
+  admission = acquireProfileStateRuntimeAdmission(stateDirectory)
   heldChanges = []
   stopListening = onStructuredAgentSessionsHeldChanged((held) => heldChanges.push(held))
 })
@@ -105,6 +119,7 @@ beforeEach(async () => {
 afterEach(async () => {
   stopListening()
   await stopStructuredAgentSessionRuntime()
+  admission.release()
   await rm(stateDirectory, { recursive: true, force: true })
 })
 

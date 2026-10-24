@@ -37,6 +37,16 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   supportsLocation = (location: AgentSessionExecutionLocation): boolean =>
     this.adapters().some((adapter) => adapter.supportsLocation?.(location) ?? false)
 
+  contextDeliveryCapabilities: NonNullable<
+    StructuredAgentSessionAdapter['contextDeliveryCapabilities']
+  > = (sessionId, agent) => {
+    const owner = this.capabilityOwner(sessionId, agent)
+    if (!owner || (agent !== undefined && owner.definition.agent !== agent)) {
+      return { state: 'unverified' }
+    }
+    return owner.adapter.contextDeliveryCapabilities?.(sessionId) ?? { state: 'unverified' }
+  }
+
   /** Every adapter already gates its own shutdown, so the router only has to stop UNDOING that:
    *  a late acquire must not clear `allAdaptersClosed` and fan a session back out to closed
    *  adapters. Once closed, the router stays closed. */

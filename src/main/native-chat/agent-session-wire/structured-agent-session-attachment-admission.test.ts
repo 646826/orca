@@ -1,3 +1,4 @@
+import { commitTestUploadOwner } from '../agent-session-attachments/agent-session-upload-provenance.test-fixture'
 // A message naming a chat attachment the host no longer stores is refused whole at admission,
 // with a reason the client's existing rejected-send row puts into words, on the direct path and
 // the queued one alike; a stored one is claimed, and a /clear carries the claim to its new chat.
@@ -39,6 +40,12 @@ function storedPath(name: string): string {
 async function storeUpload(name: string): Promise<string> {
   await mkdir(join(agentSessionAttachmentStoreRoot(rig.root), UPLOAD), { recursive: true })
   await writeFile(storedPath(name), 'bytes')
+  commitTestUploadOwner(openTestJournalHostDatabase(rig.root).db, {
+    sessionId: SESSION,
+    uploadId: UPLOAD,
+    name,
+    byteLength: 5
+  })
   return storedPath(name)
 }
 

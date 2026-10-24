@@ -1,10 +1,11 @@
+import { overflowEvent, mapWatcherEvents, emitToSubscribers } from './runtime-root-watch-events'
+import { readWorkspaceWatchObservation } from './workspace-watch-observation'
 import type { FsChangeEvent } from '../../shared/filesystem-entry-types'
 import {
   forgetRuntimeWatcherProcessRoot,
   resetRuntimeWatcherProcessForTest,
   subscribeViaRuntimeWatcherProcess
 } from '../ipc/parcel-watcher-process'
-import type { WatcherProcessEvent } from '../ipc/parcel-watcher-process-protocol'
 import type { WatcherProcessSubscription } from '../ipc/parcel-watcher-process-subscription'
 import {
   isWatcherProcessFailure,
@@ -49,27 +50,6 @@ const {
   release: releaseRuntimeRootOwnership,
   releaseAfterFailure: releaseRuntimeRootAfterFailure
 } = createRuntimeRootOwnershipReleaser(runtimeRootWatches, forgetRuntimeWatcherProcessRoot)
-
-function overflowEvent(rootPath: string): FsChangeEvent[] {
-  return [{ kind: 'overflow', absolutePath: rootPath }]
-}
-
-function mapWatcherEvents(events: readonly WatcherProcessEvent[]): FsChangeEvent[] {
-  return events.map((event) => ({
-    kind: event.type,
-    absolutePath: event.path,
-    isDirectory: event.isDirectory
-  }))
-}
-
-function emitToSubscribers(root: RuntimeRootWatch, events: FsChangeEvent[]): void {
-  if (root.closed) {
-    return
-  }
-  for (const subscriber of root.subscribers) {
-    subscriber.onEvents(events)
-  }
-}
 
 function terminateRootWatch(root: RuntimeRootWatch, error: Error): void {
   if (root.closed) {
@@ -335,4 +315,13 @@ export function resetRuntimeRootWatchersForTest(): void {
 
 export function getRuntimeRootWatchWaiterCountForTest(rootPath: string): number {
   return runtimeRootWatches.get(rootPath)?.startWaiters.waiterCount ?? 0
+}
+
+/** Passive exact-root observation; never acquires or retains a native subscription. */
+export function readRuntimeWorkspaceWatchObservation(rootPath: string, scopeDigest: string) {
+  const root = runtimeRootWatches.get(rootPath)
+  return readWorkspaceWatchObservation(
+    root && !root.closed && root.subscription ? root : null,
+    scopeDigest
+  )
 }

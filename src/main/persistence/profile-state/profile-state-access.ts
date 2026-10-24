@@ -19,6 +19,7 @@ export type ProfileStateMaintenance = ProfileStateRuntimeAdmission & {
 }
 
 const maintenanceRoots = new WeakMap<ProfileStateMaintenance, string>()
+const runtimeAdmissions = new Map<string, Map<string, ProfileStateRuntimeAdmission>>()
 
 /** Bind destructive operations to a genuine, live maintenance owner for these exact profile paths. */
 export function assertProfileStateMaintenance(
@@ -69,10 +70,56 @@ export function acquireProfileStateRuntimeAdmission(
   const owner = publishAccessOwner(paths, false)
   try {
     reclaimExitedOwner(paths.maintenance)
-    return owner
+    const root = dirname(paths.root)
+    const admissions =
+      runtimeAdmissions.get(root) ?? new Map<string, ProfileStateRuntimeAdmission>()
+    const admission: ProfileStateRuntimeAdmission = {
+      assertActive: () => owner.assertActive(),
+      release(): void {
+        owner.release()
+        admissions.delete(owner.token)
+        if (admissions.size === 0 && runtimeAdmissions.get(root) === admissions) {
+          runtimeAdmissions.delete(root)
+        }
+      }
+    }
+    admissions.set(owner.token, admission)
+    runtimeAdmissions.set(root, admissions)
+    return admission
   } catch (error) {
     owner.release()
     throw error
+  }
+}
+
+/** Exempts only this runtime's genuine admission while excluding old-schema writers. */
+export function withProfileStateRuntimeMigration<T>(userDataPath: string, run: () => T): T {
+  const root = realpathSync(userDataPath)
+  const admissions = runtimeAdmissions.get(root)
+  const self = admissions?.size === 1 ? admissions.entries().next().value : undefined
+  if (!self) {
+    throw new ProfileStateAccessError(
+      'Schema migration requires exactly one live runtime admission'
+    )
+  }
+  const [token, admission] = self
+  admission.assertActive()
+  const paths = profileStateAccessPaths(root)
+  const maintenance = publishAccessOwner(paths, true)
+  try {
+    for (const entry of readdirSync(paths.participants)) {
+      if (entry !== token) {
+        reclaimExitedOwner(join(paths.participants, entry))
+      }
+    }
+    admission.assertActive()
+    const result = run()
+    if (result instanceof Promise) {
+      throw new ProfileStateAccessError('Schema migration must complete synchronously')
+    }
+    return result
+  } finally {
+    maintenance.release()
   }
 }
 

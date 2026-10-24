@@ -1,12 +1,11 @@
+import { saveClipboardImageBufferForTarget } from './clipboard-image-attachment-target'
 import {
-  app,
   clipboard,
   ipcMain,
   nativeImage,
   type IpcMainInvokeEvent,
   type WebContents
 } from 'electron'
-import { randomUUID } from 'node:crypto'
 import { open, stat } from 'node:fs/promises'
 import { runProcess } from '@orca/process-host'
 import type { Store } from '../persistence'
@@ -18,10 +17,7 @@ import {
   assertClipboardTextWithinLimitWithYield,
   type ReadClipboardTextOptions
 } from '../../shared/clipboard-text'
-import {
-  saveClipboardImageBufferAsTempFile,
-  type SaveClipboardImageAsTempFileArgs
-} from './clipboard-image-temp-file'
+import type { SaveClipboardImageAsTempFileArgs } from './clipboard-image-temp-file'
 import {
   assertClipboardImageBase64LengthWithinLimit,
   assertClipboardImageByteLengthWithinLimit,
@@ -38,8 +34,6 @@ import {
   cleanupExpiredRemoteClipboardFiles,
   scheduleLegacyRemoteClipboardFileCleanup
 } from './clipboard-remote-file-copy'
-import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
-import { uploadPasteToAgentSessionAttachments } from '../ipc/agent-session-attachment-upload'
 import { readWindowsClipboardImageFileAsPng } from './clipboard-windows-image-file'
 import { readClipboardImageSource } from './clipboard-image-source'
 import { readClipboardCopiedFilePaths } from './clipboard-copied-file-paths'
@@ -49,7 +43,6 @@ import { publishClipboardText } from './clipboard-text-publisher'
 import { isDashboardPopoutRenderer } from './dashboard-popout-window'
 import { restoreNativeChatPastes } from './native-chat-paste-files'
 import { savePastedTextAsFile, type SavePastedTextAsFileArgs } from './native-chat-pasted-text-file'
-import { agentSessionPastedImageName } from '../../shared/agent-session-attachments'
 import type { AgentSessionAttachmentStore } from '../native-chat/agent-session-attachments/agent-session-attachment-store'
 
 let trustedClipboardRendererWebContentsId: number | null = null
@@ -62,44 +55,6 @@ type ClipboardWriteFileRequest = {
 export type ClipboardHandlerOptions = {
   /** This machine's chat attachment store, after starting its chat host; null when it can't. */
   localChatAttachmentStore?: () => Promise<AgentSessionAttachmentStore | null>
-}
-
-async function saveClipboardImageBufferForTarget(
-  buffer: Buffer,
-  args: SaveClipboardImageAsTempFileArgs | undefined,
-  options: ClipboardHandlerOptions
-): Promise<string> {
-  assertClipboardImageByteLengthWithinLimit(buffer.byteLength)
-  const runtimeEnvironmentId = args?.runtimeEnvironmentId?.trim()
-  // A structured chat on a paired server keeps its pasted images in that server's store.
-  if (runtimeEnvironmentId && args?.agentSessionAttachment) {
-    return uploadPasteToAgentSessionAttachments(
-      args.agentSessionAttachment,
-      runtimeEnvironmentId,
-      app.getPath('userData'),
-      buffer
-    )
-  }
-  // Why (#17679): with a runtime owner, a connectionId names one of the RUNTIME's SSH
-  // connections (nested Remote Server -> SSH), not one this process dialed. Looking it up
-  // in the local provider registry can only miss, so the runtime must perform the save.
-  if (runtimeEnvironmentId) {
-    return saveClipboardImageBufferInRuntime(
-      app.getPath('userData'),
-      runtimeEnvironmentId,
-      buffer,
-      args?.connectionId ?? null
-    )
-  }
-  // A local structured chat's paste goes in this machine's chat store: a send claims it for its
-  // chat, and only an unclaimed one is ever swept. Any other composer paste keeps the paste folder.
-  if (args?.forNativeChatDraft === true && args.forStructuredChat === true && !args.connectionId) {
-    const store = await options.localChatAttachmentStore?.().catch(() => null)
-    if (store) {
-      return store.storeFile(agentSessionPastedImageName(Date.now(), randomUUID()), buffer)
-    }
-  }
-  return saveClipboardImageBufferAsTempFile(buffer, args)
 }
 
 export function setTrustedClipboardRendererWebContentsId(webContentsId: number | null): void {

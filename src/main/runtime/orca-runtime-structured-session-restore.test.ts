@@ -1,7 +1,25 @@
+import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import { OrcaRuntimeService } from './orca-runtime'
 
+type RestorationHost = Pick<
+  StructuredAgentSessionHost,
+  | 'reconcileRestartLeases'
+  | 'restoreReadableSessions'
+  | 'listConversationSurfaces'
+  | 'listSessionTabs'
+> &
+  Partial<
+    Pick<
+      StructuredAgentSessionHost,
+      'getPersistedVisibleSessionTabIndex' | 'close' | 'setSessionTabVisibility'
+    >
+  >
+function setRestorationHost(host: RestorationHost) {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these tests exercise only the checked restoration methods; unrelated host capabilities are never accessed.
+  setStructuredAgentSessionHost(host as StructuredAgentSessionHost)
+}
 afterEach(() => setStructuredAgentSessionHost(null))
 
 describe('structured session cold restoration', () => {
@@ -108,11 +126,12 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = hydrate
     internal.refreshMobileSessionPtyRecords = refresh
     internal.ensureStructuredAgentSessionHost = ensureHost
-    setStructuredAgentSessionHost({
+    setRestorationHost({
       reconcileRestartLeases,
       restoreReadableSessions,
+      listConversationSurfaces: () => [],
       listSessionTabs: () => []
-    } as never)
+    })
 
     const first = runtime.restoreStructuredAgentSessionTabs()
     const second = runtime.restoreStructuredAgentSessionTabs()
@@ -168,15 +187,16 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
-    setStructuredAgentSessionHost({
+    setRestorationHost({
       reconcileRestartLeases: async () => undefined,
       getPersistedVisibleSessionTabIndex: () => ({
         present: true,
         sessionIds: ['session-survives-rollback']
       }),
       restoreReadableSessions,
+      listConversationSurfaces: () => [],
       listSessionTabs: () => []
-    } as never)
+    })
 
     await runtime.restoreStructuredAgentSessionTabs()
 
@@ -225,12 +245,13 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
-    setStructuredAgentSessionHost({
+    setRestorationHost({
       reconcileRestartLeases: async () => undefined,
       getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [] }),
       restoreReadableSessions,
+      listConversationSurfaces: () => [],
       listSessionTabs: () => []
-    } as never)
+    })
 
     await runtime.restoreStructuredAgentSessionTabs()
 
@@ -258,11 +279,12 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
-    setStructuredAgentSessionHost({
+    setRestorationHost({
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined,
       close: closeStructuredSession,
       setSessionTabVisibility,
+      listConversationSurfaces: () => [],
       listSessionTabs: () => [
         {
           sessionId: 'agent-session:agent-session:restored-session',
@@ -270,7 +292,7 @@ describe('structured session cold restoration', () => {
           agent: 'codex'
         }
       ]
-    } as never)
+    })
     runtime.syncWindowGraph(1, {
       tabs: [],
       leaves: [],
@@ -373,9 +395,10 @@ describe('structured session cold restoration', () => {
     internal.hydrateHeadlessMobileSessionTabsFromWorkspaceSession = () => new Set()
     internal.refreshMobileSessionPtyRecords = async () => new Set()
     internal.ensureStructuredAgentSessionHost = async () => undefined
-    setStructuredAgentSessionHost({
+    setRestorationHost({
       reconcileRestartLeases: async () => undefined,
       restoreReadableSessions: async () => undefined,
+      listConversationSurfaces: () => [],
       listSessionTabs: () => [
         {
           sessionId: 'agent-session:agent-session:restored-claude',
@@ -383,7 +406,7 @@ describe('structured session cold restoration', () => {
           agent: 'claude'
         }
       ]
-    } as never)
+    })
 
     await runtime.restoreStructuredAgentSessionTabs()
 

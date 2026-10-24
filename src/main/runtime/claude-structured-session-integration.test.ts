@@ -3,6 +3,10 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
 import type { AgentSessionSubscribeEvent } from '../../shared/agent-session-wire'
@@ -130,6 +134,7 @@ function leaseOf(sessionId: string): {
 
 let claude: ReturnType<typeof fakeClaude>
 let root: string
+let admission: ProfileStateRuntimeAdmission
 let dispatcher: RpcDispatcher
 let cleanups: Map<string, () => void>
 let transcriptPath: string
@@ -216,6 +221,7 @@ beforeEach(async () => {
     ANTHROPIC_BASE_URL: 'https://gateway.example.test'
   }
   root = await mkdtemp(join(tmpdir(), 'orca-claude-structured-integration-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   recordAccountHomePath = join(root, 'claude-home')
   transcriptPath = join(root, 'claude-home', 'projects', 'workspace', `${PROVIDER_SESSION}.jsonl`)
   await mkdir(join(root, 'claude-home', 'projects', 'workspace'), { recursive: true })
@@ -283,6 +289,7 @@ afterEach(async () => {
   vi.unstubAllEnvs()
   claude.setSelfExit(null)
   await stopStructuredAgentSessionRuntime()
+  admission.release()
   await rm(root, { recursive: true, force: true })
 })
 

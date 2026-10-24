@@ -20,15 +20,22 @@ import {
 import { createStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 import { scriptedCodexTransport } from './scripted-codex-transport.test-fixture'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 
 describe('structured session runtime provider-exit wiring', () => {
   let root: string | null = null
+  let admission: ProfileStateRuntimeAdmission | undefined
   let operations = 0
 
   const operationId = (): string => `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`
 
   afterEach(async () => {
     await stopStructuredAgentSessionRuntime()
+    admission?.release()
+    admission = undefined
     if (root) {
       await rm(root, { recursive: true, force: true })
       root = null
@@ -37,6 +44,7 @@ describe('structured session runtime provider-exit wiring', () => {
 
   it('does not respawn after a provider exit, and the next message starts a new child', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-runtime-provider-exit-'))
+    admission = acquireProfileStateRuntimeAdmission(root)
     operations = 0
     const connections: {
       connection: CodexAppServerConnection
@@ -140,6 +148,7 @@ describe('structured session runtime provider-exit wiring', () => {
 
   it('does not reacquire when the production exit callback comes from a requested close', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-runtime-requested-close-'))
+    admission = acquireProfileStateRuntimeAdmission(root)
     operations = 0
     const connections: {
       connection: CodexAppServerConnection
@@ -240,6 +249,7 @@ describe('structured session runtime provider-exit wiring', () => {
 
   it('waits for a start a send began before tearing down the runtime', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-runtime-recovery-shutdown-'))
+    admission = acquireProfileStateRuntimeAdmission(root)
     let releaseRecovery!: () => void
     const recoveryReleased = new Promise<void>((resolve) => {
       releaseRecovery = resolve
@@ -347,6 +357,7 @@ describe('structured session runtime provider-exit wiring', () => {
     // session still indexed. What finally stops it is `closeAll`, which delivers the exit
     // callback AFTER host teardown has already run.
     root = await mkdtemp(join(tmpdir(), 'orca-runtime-backstop-exit-'))
+    admission = acquireProfileStateRuntimeAdmission(root)
     operations = 0
     const connections: {
       connection: CodexAppServerConnection

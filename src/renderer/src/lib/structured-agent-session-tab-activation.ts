@@ -6,8 +6,11 @@ import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
 import {
   executionHostIdForStructuredTarget,
-  structuredAgentSessionOwnerForTab
+  structuredAgentSessionFocusOwner,
+  structuredAgentSessionOwnerForTab,
+  structuredAgentSessionTargetForTab
 } from '@/runtime/structured-agent-session-owner'
+import { resolveHostSessionTabIdForWebSessionTab } from '@/runtime/web-session-tabs-sync/tracking-mappings'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import type { Tab } from '../../../shared/tab-types'
 
@@ -35,9 +38,9 @@ export function activateStructuredAgentSessionTab(args: {
 }): boolean {
   const state = useAppStore.getState()
   const tab = (state.unifiedTabsByWorktree[args.worktreeId] ?? []).find(
-    (candidate) =>
+    (candidate): candidate is Tab & { contentType: 'agent-session' | 'conversation' } =>
       candidate.id === args.tabId &&
-      candidate.contentType === 'agent-session' &&
+      (candidate.contentType === 'agent-session' || candidate.contentType === 'conversation') &&
       (!args.target ||
         structuredAgentSessionOwnerForTab(state, candidate) ===
           executionHostIdForStructuredTarget(args.target))
@@ -45,10 +48,39 @@ export function activateStructuredAgentSessionTab(args: {
   if (!tab) {
     return false
   }
+  const conversationTarget =
+    tab.contentType === 'conversation'
+      ? (args.target ?? structuredAgentSessionTargetForTab(state, tab))
+      : null
+  if (tab.contentType === 'conversation' && !conversationTarget) {
+    return false
+  }
   state.focusGroup(args.worktreeId, tab.groupId)
   state.activateTab(tab.id, { worktreeId: args.worktreeId })
-  state.setActiveTabType('agent-session', args.worktreeId)
+  state.setActiveTabType(tab.contentType, args.worktreeId)
   requestNativeChatComposerFocus(tab.id)
+  if (conversationTarget) {
+    // Conversation inventory ids are durable host surface ids, unlike native session wire ids.
+    const hostTabId = resolveHostSessionTabIdForWebSessionTab(state, {
+      ...structuredAgentSessionFocusOwner(conversationTarget),
+      worktreeId: args.worktreeId,
+      tabId: tab.id
+    })
+    // Activation has no conversation-id CAS. A local alias could name an unrelated host tab.
+    if (!hostTabId) {
+      return true
+    }
+    void callRuntimeRpc(conversationTarget, 'session.tabs.activate', {
+      worktree: toRuntimeWorktreeSelector(args.worktreeId),
+      tabId: hostTabId,
+      notifyClients: false,
+      navigation: 'caller',
+      intent: 'user'
+    }).catch((error: unknown) => {
+      console.warn('[native-chat] synchronizing conversation tab selection failed', error)
+    })
+    return true
+  }
   const environmentId = runtimeEnvironmentIdOrLocalUnlessTwin(state, args.worktreeId)
   void callRuntimeRpc(
     args.target ?? runtimeTargetForOwnerEnvironment(environmentId),

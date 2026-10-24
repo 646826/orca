@@ -89,45 +89,50 @@ export function sendStructuredAgentSessionTurn(
   arrival?: Parameters<typeof sendPreparation>[2]
 ): Promise<AgentSessionMutationResult<AgentSessionSendResult>> {
   const plan = sendPlan(params)
-  return runAfterRewindStart(context, caller.callerKey, params.envelope, plan, (selection) =>
-    runStructuredAgentSessionMutation(
-      context,
-      caller,
-      params.envelope,
-      {
-        ...plan,
-        run: async (ctx) => {
-          const record = context.deps.store.getRecord(ctx.sessionId)
-          const blocked = structuredAgentSessionSendBlock(record)
-          if (blocked) {
-            return blocked
-          }
-          if (params.usageLimitContinuationOfTurnItemId !== undefined) {
-            const snapshot = ctx.journal.snapshot()
-            const cut = latestNativeChatUsageLimitCut(snapshot.items, snapshot.submissions)
-            if (
-              cut?.turnItemId !== params.usageLimitContinuationOfTurnItemId ||
-              shouldQueueStructuredAgentSessionSend({
-                record,
-                journal: ctx.journal,
-                work: contextStructuredAgentSessionCurrentWork(ctx)
-              })
-            ) {
-              return {
-                ok: false as const,
-                refusal: refuse(
-                  'agent_session_operation_invalid',
-                  { reason: 'continuationSuperseded' },
-                  'This chat has moved on. Check the latest messages before continuing.'
-                )
+  return runAfterRewindStart(
+    context,
+    caller.callerKey,
+    params.envelope,
+    { ...plan, conversationMutationSupported: caller.conversationMutationSupported },
+    (selection) =>
+      runStructuredAgentSessionMutation(
+        context,
+        caller,
+        params.envelope,
+        {
+          ...plan,
+          run: async (ctx) => {
+            const record = context.deps.store.getRecord(ctx.sessionId)
+            const blocked = structuredAgentSessionSendBlock(record)
+            if (blocked) {
+              return blocked
+            }
+            if (params.usageLimitContinuationOfTurnItemId !== undefined) {
+              const snapshot = ctx.journal.snapshot()
+              const cut = latestNativeChatUsageLimitCut(snapshot.items, snapshot.submissions)
+              if (
+                cut?.turnItemId !== params.usageLimitContinuationOfTurnItemId ||
+                shouldQueueStructuredAgentSessionSend({
+                  record,
+                  journal: ctx.journal,
+                  work: contextStructuredAgentSessionCurrentWork(ctx)
+                })
+              ) {
+                return {
+                  ok: false as const,
+                  refusal: refuse(
+                    'agent_session_operation_invalid',
+                    { reason: 'continuationSuperseded' },
+                    'This chat has moved on. Check the latest messages before continuing.'
+                  )
+                }
               }
             }
+            return runQueueableStructuredAgentSessionSend(context, ctx, params, () => plan.run(ctx))
           }
-          return runQueueableStructuredAgentSessionSend(context, ctx, params, () => plan.run(ctx))
-        }
-      },
-      sendPreparation(context, params.envelope, arrival, selection)
-    )
+        },
+        sendPreparation(context, params.envelope, arrival, selection)
+      )
   )
 }
 
@@ -258,7 +263,7 @@ export async function changeStructuredAgentSessionThreadGoal(
     context,
     caller.callerKey,
     params.envelope,
-    plan,
+    { ...plan, conversationMutationSupported: caller.conversationMutationSupported },
     (selection) =>
       runStructuredAgentSessionMutation(
         context,

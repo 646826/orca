@@ -35,6 +35,8 @@ type ClaudeVersionProbe = (
 ) => Promise<string | null>
 
 export type ClaudeCliFlagSupport = {
+  /** Already observed version for the current binary; never starts a probe. */
+  observedVersion?: (launch: Pick<ClaudeCliLaunch, 'command' | 'cwd'>) => Promise<string | null>
   /** Share probes by binary and cwd; budget expiry declines the flag for this launch only. */
   supports: (
     flag: ClaudeCliFlag,
@@ -135,6 +137,10 @@ export function createClaudeCliFlagSupport(
   }
 
   return {
+    observedVersion: async (launch) => {
+      const key = await deps.keyOf(launch.command, launch.cwd)
+      return key === null ? null : (versionOf(key) ?? null)
+    },
     supports: async (flag, launch, budgetMs = deps.budgetMs, startProbe = true) => {
       // Include binary lookup in the launch's wait budget.
       const deadline = deps.now() + budgetMs

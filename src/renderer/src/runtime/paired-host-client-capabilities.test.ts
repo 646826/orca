@@ -159,3 +159,11 @@ describe("this client's capabilities as a paired host receives them", () => {
     })
   })
 })
+
+it('advertises only the current aggregate mutation contract through both paired client selections', () => {
+  for (const isWebClient of [false, true]) {
+    mocks.isWebClient = isWebClient
+    expect(pairedHostClientCapabilities()).toContain('agent-session.conversations.v2')
+    expect(pairedHostClientCapabilities()).not.toContain('agent-session.conversations.v1')
+  }
+})

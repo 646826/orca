@@ -1,9 +1,13 @@
+import {
+  publishRuntimeConversationSurfaces,
+  readRestoredNativeTabs,
+  readNativeRestorationTargets
+} from '../conversation-tab-restoration'
 import type { OrcaRuntimeWithScheduleMobileSessionTabsChanged as ScheduleMobileSessionTabsChangedMethods } from './session-tabs-change-publication'
 import { defaultAgentChatLabel } from '../../../shared/agent-session-chat-label'
 import { OrcaRuntimeWithGetStructuredAgentSessionCreateSupport } from './structured-session-create-support'
 import { getStructuredAgentSessionHost } from '../../native-chat/agent-session-wire/structured-agent-session-registry'
-import { collectSavedStructuredAgentSessionIds } from '../saved-structured-agent-session-restoration'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../shared/execution-host'
 import { seedStructuredAgentSessionTabIndex } from '../structured-agent-session-tab-index-seed'
 import { restoredChatTabChanges } from './restored-chat-tab-changes'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
@@ -28,14 +32,15 @@ import {
 } from '../agent-launch-scope-runtime'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentLaunchRuntime } from '../../../shared/agent-launch-runtime'
-import type { TerminalWorkspaceLaunchScope } from '../runtime-legacy-worker-terminal-recovery-types'
+import type {
+  AgentLaunchScope,
+  TerminalWorkspaceLaunchScope
+} from '../runtime-legacy-worker-terminal-recovery-types'
 import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
 import type { PtyProcessInspection } from '../../providers/pty-process-inspection'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
 
-export type AgentLaunchScope = Parameters<
-  OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce['getAgentLaunchPlatformForWorkspace']
->[0]
+export type { AgentLaunchScope } from '../runtime-legacy-worker-terminal-recovery-types'
 
 export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce extends OrcaRuntimeWithGetStructuredAgentSessionCreateSupport {
   protected abstract notifyMobileSessionTabSnapshots(
@@ -45,14 +50,11 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
   protected async restoreStructuredAgentSessionTabsOnce(): Promise<void> {
     await this.prepareStructuredAgentSessionStartupRestoration()
     const host = getStructuredAgentSessionHost()
-    const persistedVisibleIndex =
-      typeof host?.getPersistedVisibleSessionTabIndex === 'function'
-        ? host.getPersistedVisibleSessionTabIndex()
-        : { present: false, sessionIds: [] }
-    const profileIds = collectSavedStructuredAgentSessionIds(
+    await this.publishConversationSurfaces(LOCAL_EXECUTION_HOST_ID)
+    const targets = readNativeRestorationTargets(
+      host,
       this.store?.getWorkspaceSession?.(LOCAL_EXECUTION_HOST_ID) ?? null
     )
-    const targets = persistedVisibleIndex.present ? persistedVisibleIndex.sessionIds : profileIds
     await host?.restoreReadableSessions(targets)
     for (const worktreeId of this.getKnownWorkspaceSessionWorktreeIds()) {
       this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId, {
@@ -62,13 +64,7 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     }
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession()
     // Every session here is of an agent this host registered: its store holds no other agent's records.
-    const restored = (host?.listSessionTabs() ?? []).flatMap((session) => {
-      let sessionId = session.sessionId
-      while (sessionId.startsWith('agent-session:')) {
-        sessionId = sessionId.slice('agent-session:'.length)
-      }
-      return [{ ...session, agent: session.agent, sessionId }]
-    })
+    const restored = readRestoredNativeTabs(host)
     await seedStructuredAgentSessionTabIndex(
       host,
       targets,
@@ -93,6 +89,15 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     if (wasUnverifiable && !this.structuredAgentSessionInventoryUnverifiable) {
       this.notifyMobileSessionTabSnapshots()
     }
+  }
+
+  async publishConversationSurfaces(hostId: ExecutionHostId): Promise<void> {
+    await publishRuntimeConversationSurfaces(
+      hostId,
+      getStructuredAgentSessionHost(),
+      () => this.requireStore(),
+      (workspaceId) => this.publishConversationInventory(workspaceId)
+    )
   }
 
   async publishStructuredAgentSessionTab(input: {
@@ -298,11 +303,7 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     return Object.keys(localGitOptions).length > 0 ? [localGitOptions] : []
   }
 
-  protected getAgentLaunchPlatformForWorkspace(
-    scope: Pick<TerminalWorkspaceLaunchScope, 'repo' | 'path'> & {
-      connectionId?: string | null
-    }
-  ): NodeJS.Platform {
+  protected getAgentLaunchPlatformForWorkspace(scope: AgentLaunchScope): NodeJS.Platform {
     // Orchestration passes a repo-only scope; the platform never reads its id or folder.
     return agentLaunchPlatformForScope(this.requireStore(), {
       id: '',

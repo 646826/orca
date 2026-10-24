@@ -3,12 +3,15 @@
 // through a generated wrapper whose first argument is the launch log the spec reads back.
 const { randomUUID } = require('node:crypto')
 const fs = require('node:fs')
+const { join } = require('node:path')
+const { afterAcceptanceRelease } = require('./conversation-stub-control.cjs')
+const conversationDirectory = process.env.ORCA_E2E_CONVERSATION_STUB_DIRECTORY
 
 const [launchLog, ...args] = process.argv.slice(2)
 fs.appendFileSync(launchLog, `${JSON.stringify({ pid: process.pid, args })}\n`)
 
 if (args.includes('--version') || args.includes('-v')) {
-  process.stdout.write('2.1.280 (Claude Code)\n')
+  process.stdout.write(`${conversationDirectory ? '2.1.309' : '2.1.280'} (Claude Code)\n`)
   process.exit(0)
 }
 
@@ -37,9 +40,27 @@ const SLOW_TURN_MS = 60_000
 let turnTimer = null
 
 function startTurn(frame) {
+  if (conversationDirectory) {
+    fs.appendFileSync(
+      join(conversationDirectory, 'claude.jsonl'),
+      `${JSON.stringify({
+        kind: 'input',
+        nativeId: sessionId,
+        clientId: frame.uuid,
+        input: frame.message?.content
+      })}\n`
+    )
+  }
+  afterAcceptanceRelease(conversationDirectory, 'claude', () => {
+    deliverTurn(frame)
+  })
+}
+
+function deliverTurn(frame) {
   // The CLI's --replay-user-messages echo, which opens the turn.
   write({ ...frame, isReplay: true })
-  const slow = JSON.stringify(frame.message ?? '').includes('slow')
+  const text = JSON.stringify(frame.message ?? '')
+  const slow = text.includes('slow') || text.includes('FIXTURE_HOLD_TURN')
   turnTimer = setTimeout(
     () => {
       turnTimer = null
@@ -84,6 +105,104 @@ function interruptTurn() {
   })
 }
 
+const evidenceServer = 'orca-conversation-evidence'
+let mcpState = 'absent'
+let mcpTools = []
+let mcpTimer
+const pendingStatuses = []
+const reply = (frame, response) =>
+  write({
+    type: 'control_response',
+    response: { subtype: 'success', request_id: frame.request_id, response }
+  })
+const mcpStatus = () => ({
+  mcpServers:
+    mcpState === 'connected'
+      ? [{ name: evidenceServer, source: 'sdk', status: 'connected', tools: mcpTools }]
+      : []
+})
+function finishMcp(state) {
+  mcpState = state
+  clearTimeout(mcpTimer)
+  for (const frame of pendingStatuses.splice(0)) {
+    reply(frame, mcpStatus())
+  }
+}
+function mcpMessage(requestId, message) {
+  write({
+    type: 'control_request',
+    request_id: requestId,
+    request: { subtype: 'mcp_message', server_name: evidenceServer, message }
+  })
+}
+function beginMcp(request) {
+  let configured = false
+  try {
+    configured =
+      JSON.parse(argValue('--mcp-config') ?? '{}').mcpServers?.[evidenceServer]?.type === 'sdk'
+  } catch {}
+  const announced =
+    Array.isArray(request.sdkMcpServers) && request.sdkMcpServers.includes(evidenceServer)
+  if (!conversationDirectory || (!announced && !configured)) {
+    return
+  }
+  mcpState = 'initializing'
+  mcpTimer = setTimeout(() => finishMcp('failed'), 2000)
+  mcpMessage('fixture-mcp-initialize', {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'orca-scripted-native-peer', version: '1' }
+    }
+  })
+}
+function acceptMcpResponse(frame) {
+  const envelope = frame.response
+  const initializing =
+    envelope?.request_id === 'fixture-mcp-initialize' && mcpState === 'initializing'
+  const listing = envelope?.request_id === 'fixture-mcp-tools' && mcpState === 'listing'
+  if (!initializing && !listing) {
+    return
+  }
+  const message = envelope.response?.mcp_response
+  if (
+    envelope.subtype !== 'success' ||
+    message?.jsonrpc !== '2.0' ||
+    message.id !== (initializing ? 1 : 2) ||
+    message.error ||
+    !message.result
+  ) {
+    finishMcp('failed')
+    return
+  }
+  if (initializing) {
+    if (
+      message.result.protocolVersion !== '2024-11-05' ||
+      typeof message.result.serverInfo?.name !== 'string' ||
+      !message.result.capabilities?.tools
+    ) {
+      finishMcp('failed')
+      return
+    }
+    mcpState = 'listing'
+    mcpMessage('fixture-mcp-initialized', { jsonrpc: '2.0', method: 'notifications/initialized' })
+    mcpMessage('fixture-mcp-tools', { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+    return
+  }
+  if (
+    !Array.isArray(message.result.tools) ||
+    !message.result.tools.every((tool) => tool && typeof tool.name === 'string')
+  ) {
+    finishMcp('failed')
+    return
+  }
+  mcpTools = message.result.tools.map((tool) => ({ name: tool.name }))
+  finishMcp('connected')
+}
+
 let buffer = ''
 let initSent = false
 process.stdin.setEncoding('utf8')
@@ -103,6 +222,10 @@ process.stdin.on('data', (chunk) => {
       startTurn(frame)
       continue
     }
+    if (frame?.type === 'control_response') {
+      acceptMcpResponse(frame)
+      continue
+    }
     if (frame?.type !== 'control_request') {
       continue
     }
@@ -110,16 +233,18 @@ process.stdin.on('data', (chunk) => {
     if (subtype === 'interrupt') {
       interruptTurn()
     }
-    write({
-      type: 'control_response',
-      response: {
-        subtype: 'success',
-        request_id: frame.request_id,
-        response: subtype === 'initialize' ? initializeResponse : {}
+    if (subtype === 'mcp_status' && conversationDirectory) {
+      if (mcpState === 'initializing' || mcpState === 'listing') {
+        pendingStatuses.push(frame)
+      } else {
+        reply(frame, mcpStatus())
       }
-    })
+      continue
+    }
+    reply(frame, subtype === 'initialize' ? initializeResponse : {})
     if (subtype === 'initialize' && !initSent) {
       initSent = true
+      beginMcp(frame.request)
       write({
         type: 'system',
         subtype: 'init',

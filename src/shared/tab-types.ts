@@ -24,6 +24,7 @@ export type TabContentType =
   | 'conflict-review'
   | 'check-details'
   | 'agent-session'
+  | 'conversation'
   | 'browser'
   | 'simulator'
 
@@ -31,6 +32,7 @@ export type WorkspaceVisibleTabType =
   | 'terminal'
   | 'editor'
   | 'agent-session'
+  | 'conversation'
   | 'browser'
   | 'simulator'
 export type CtrlTabOrderMode = 'mru' | 'sequential'
@@ -40,6 +42,7 @@ export type CtrlTabOrderMode = 'mru' | 'sequential'
 export function toVisibleTabType(contentType: TabContentType): WorkspaceVisibleTabType {
   if (
     contentType === 'agent-session' ||
+    contentType === 'conversation' ||
     contentType === 'browser' ||
     contentType === 'terminal' ||
     contentType === 'simulator'

@@ -18,13 +18,17 @@ import { JournalStopMarks } from './journal-stop-marks'
 import { JournalStopAcceptor } from './journal-stop-acceptance'
 import { journalQueuePauseRestatement } from './queued-message-pause'
 import type { JournalReducerState } from './journal-reducer'
-import { JournalRowWriter, type JournalOperationReceipt } from './journal-row-writer'
+import {
+  JournalRowWriter,
+  type JournalOperationReceipt,
+  type JournalRowTransactionHook
+} from './journal-row-writer'
 import { JournalStepWriter } from './journal-step-writer'
 import { restoreJournalStore } from './journal-store-restore'
 import { JournalSubmissionWriter } from './journal-submission-writer'
 import type { JournalRow } from './journal-row-schema'
 import type { AgentSessionJournal } from './journal-store'
-import type { JournalWriteBody } from './journal-write-queue'
+import type { JournalWriteBody, JournalWriteQueue } from './journal-write-queue'
 import type { JournalAttachmentClaim } from './journal-submission-hook'
 import { claimAgentSessionAttachmentsInTransaction } from '../agent-session-attachments/agent-session-attachment-claims'
 import { isJournalStreamedTextRevision } from './journal-streamed-text-revision'
@@ -34,15 +38,19 @@ export type JournalStoreHost = {
    *  row — a standalone draft-table transaction — so readers learn of it the
    *  same way they learn of a row. */
   notifyCommitted: () => void
+  requiredInTransaction?: JournalRowTransactionHook
   identity: AgentSessionJournalIdentity
   now: () => number
   mintEpoch: () => string
   serialize: <T>(run: JournalWriteBody<T>) => Promise<T>
+  queue: JournalWriteQueue
   database: () => JournalHostDatabase
   state: () => JournalReducerState
   readOnly: () => boolean
   cursor: () => AgentJournalCursor
   adopt: (loaded: JournalLoad) => void
+  adoptionFailed: (error: unknown) => never
+  rollbackFailed: (error: unknown) => void
   commit: (rows: readonly JournalRow[], savedAt: number) => void
   journal: () => AgentSessionJournal
   enqueue: (
@@ -69,6 +77,7 @@ export type JournalStoreCollaborators = {
 
 export function createJournalStoreCollaborators(host: JournalStoreHost): JournalStoreCollaborators {
   const epochController = new JournalEpochController({
+    requiredInTransaction: host.requiredInTransaction,
     identity: host.identity,
     now: host.now,
     mintEpoch: host.mintEpoch,
@@ -85,7 +94,10 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
       ),
     queueRestatement: () => host.journal().queuedMessages.restatement(),
     cursor: host.cursor,
-    adopt: host.adopt
+    adopt: host.adopt,
+    adoptionFailed: host.adoptionFailed,
+    rollbackFailed: host.rollbackFailed,
+    notifyCommitted: host.notifyCommitted
   })
   const claimAttachments: JournalAttachmentClaim = (db, body, required, previous) =>
     claimAgentSessionAttachmentsInTransaction(db, {
@@ -98,6 +110,7 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
       now: host.now()
     })
   const rowWriter = new JournalRowWriter({
+    requiredInTransaction: host.requiredInTransaction,
     sessionId: host.identity.sessionId,
     now: host.now,
     serialize: host.serialize,
@@ -105,7 +118,11 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
     readOnly: host.readOnly,
     highestFence: () => host.state().highestFence,
     nextSequence: () => host.state().lastSequence + 1,
+    epoch: () => host.state().epoch,
+    lastRowFence: () => host.state().lastRowFence,
+    queue: host.queue,
     commit: host.commit,
+    notifyCommitted: host.notifyCommitted,
     streamedTextRevision: (row) => isJournalStreamedTextRevision(host.state(), row)
   })
   const queuedMessages = new JournalQueuedMessages({
@@ -141,6 +158,7 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
     submissionWriter: new JournalSubmissionWriter({
       state: host.state,
       identity: host.identity,
+      database: host.database,
       rowWriter,
       queuedMessages,
       claimAttachments

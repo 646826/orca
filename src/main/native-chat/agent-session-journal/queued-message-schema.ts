@@ -1,3 +1,4 @@
+import { createQueuedMessageOriginTablesSql } from './queued-message-origin'
 // The draft table's shape, created and healed at every writable open.
 
 import type Database from '../../sqlite/sync-database'
@@ -48,6 +49,8 @@ CREATE TABLE IF NOT EXISTS queued_messages (
   PRIMARY KEY (session_id, message_id)
 );
 `)
+  // Host schema migration fences writers; isolated journal stores need the same companion table.
+  db.exec(createQueuedMessageOriginTablesSql())
   const names = new Set(
     db
       .prepare('PRAGMA table_info(queued_messages)')

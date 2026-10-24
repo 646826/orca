@@ -1,9 +1,10 @@
+import { rollbackJournalEpochReceipts } from './journal-epoch-rollback'
+import { assertJournalSynchronousResult } from './journal-write-queue'
+import { captureQueuedJournalRowEvidence } from './queued-message-origin'
+import type { JournalRowTransactionHook } from './journal-row-writer'
 // Opening a new epoch.
 //
-// One transaction: discard every row of the superseded epoch, insert the new
-// epoch row at sequence 1 and the queue's cards still owed an answer, and move
-// the session projection onto it. Superseded rows are DELETED rather than
-// retained — nothing would ever shed them.
+// One transaction retains pinned history and restates every live queue card in the new epoch.
 
 import { journalRowSchemaVersion } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
@@ -22,6 +23,7 @@ import {
 import type { AgentJournalEpochReason, JournalRow } from './journal-row-schema'
 
 export function publishNewEpoch(input: {
+  requiredInTransaction?: JournalRowTransactionHook
   database: JournalHostDatabase
   identity: AgentSessionJournalIdentity
   epoch: string
@@ -33,6 +35,9 @@ export function publishNewEpoch(input: {
   queue: JournalQueueRestatement
   /** Called the instant the transaction commits, before any fallible follow-up. */
   onPublished: (loaded: JournalLoad) => void
+  onCommitted?: () => void
+  adoptionFailed?: (error: unknown) => never
+  rollbackFailed?: (error: unknown) => void
 }): void {
   const row: JournalRow = {
     kind: 'epoch',
@@ -57,22 +62,38 @@ export function publishNewEpoch(input: {
       rows.push(card)
     }
   }
-  input.database.transaction((db) => {
-    const retired = readJournalSessionEpoch(db, sessionId)
-    if (retired !== null) {
-      deleteJournalEpochRows(db, sessionId, retired)
-    }
-    for (const each of rows) {
-      insertJournalRow(db, sessionId, each)
-    }
-    input.queue.receipt.write(db)
-    publishJournalSessionEpoch(db, input.identity, input.epoch)
-  })
+  try {
+    input.database.transaction((db) => {
+      const retired = readJournalSessionEpoch(db, sessionId)
+      for (const each of rows) {
+        insertJournalRow(db, sessionId, each)
+      }
+      assertJournalSynchronousResult(input.queue.receipt.write(db))
+      for (const each of rows) {
+        captureQueuedJournalRowEvidence(db, sessionId, each)
+        assertJournalSynchronousResult(input.requiredInTransaction?.(db, each))
+      }
+      if (retired !== null) {
+        deleteJournalEpochRows(db, sessionId, retired)
+      }
+      publishJournalSessionEpoch(db, input.identity, input.epoch)
+    })
+  } catch (error) {
+    rollbackJournalEpochReceipts([input.queue.receipt], input.rollbackFailed)
+    throw error
+  }
 
-  // COMMIT landed: on disk the superseded prefix is gone and this epoch is the
-  // live one. The caller adopts that immediately, or a later failure leaves the
-  // store writing into an epoch that no longer exists.
-  input.queue.receipt.committed()
-  state.oldestSequence = 1
-  input.onPublished({ state, newer: null, damage: null })
+  try {
+    assertJournalSynchronousResult(input.queue.receipt.committed())
+    state.oldestSequence = 1
+    assertJournalSynchronousResult(input.onPublished({ state, newer: null, damage: null }))
+  } catch (error) {
+    input.adoptionFailed?.(error)
+    throw error
+  }
+  try {
+    assertJournalSynchronousResult(input.onCommitted?.())
+  } catch (error) {
+    console.warn('[journal-epoch] committed observer failed', error)
+  }
 }

@@ -112,6 +112,7 @@ describe('legacy terminal close acknowledgments', () => {
         return current
       },
       subscribe,
+      client,
       async acknowledge(handle: string, operation: Promise<void>) {
         await act(async () => {
           const resolve = acknowledgments.get(handle)
@@ -124,6 +125,24 @@ describe('legacy terminal close acknowledgments', () => {
       }
     }
   }
+
+  it('does not send a native or generic close for a read-only conversation', async () => {
+    const harness = await mount()
+    await harness.read().actions.handleCloseSessionTab({
+      type: 'conversation',
+      id: 'conversation-tab',
+      conversationId: 'c',
+      title: 'Conversation',
+      activeSessionId: 'a',
+      activeAgent: 'claude',
+      contextGeneration: 1,
+      activationFence: 1,
+      surfaceRevision: 1,
+      isActive: true
+    })
+    expect(harness.client.sendRequest).not.toHaveBeenCalled()
+    expect(harness.read().terminals).toEqual(initial)
+  })
 
   it.each([
     ['a', 'b'],

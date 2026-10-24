@@ -200,6 +200,13 @@ export class AcpStructuredOptions {
     }
   }
 
+  /** Values only: fingerprint mode changes without retaining labels or descriptions. */
+  contextDeliveryChoices(): Readonly<Record<string, string>> {
+    return Object.fromEntries(
+      this.configOptions.filter(isSelect).map((option) => [option.id, option.currentValue])
+    )
+  }
+
   // Match the mode category rather than assuming an agent's config ID.
   modeConfigId(): string {
     return this.select('mode')?.id ?? 'mode'

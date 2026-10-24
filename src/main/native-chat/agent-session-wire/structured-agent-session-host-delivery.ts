@@ -1,3 +1,8 @@
+import {
+  conversationContextDispatchObserver,
+  prepareConversationSubmissionContext
+} from './structured-conversation-context-dispatch'
+import { canDispatchConversationSubmission } from './structured-conversation-switch-dispatch'
 // The host's conversations: how one becomes open, and the delivery loop that hands its accepted
 // messages to a provider child. Bundled because they share one invariant — a conversation open
 // with a message queued has a delivery loop — and the open is where a loop for leftovers wakes.
@@ -82,6 +87,30 @@ export function createStructuredAgentSessionConversationDelivery(input: {
 }): StructuredAgentSessionConversationDelivery {
   const { deps, sessions } = input
   const loop = new StructuredAgentSessionDeliveryLoop({
+    requiresExactOrigin: (sessionId, submissionId) =>
+      Boolean(
+        deps.journalDatabase.db
+          .prepare(
+            "SELECT 1 FROM conversation_trigger_reservations WHERE target_session_id=? AND target_submission_id=? AND kind='trigger'"
+          )
+          .get(sessionId, submissionId)
+      ),
+    prepareContextDispatch: (sessionId, submissionId, signal) =>
+      prepareConversationSubmissionContext(deps, sessionId, submissionId, signal),
+    contextDispatch: (sessionId, submissionId) =>
+      conversationContextDispatchObserver(deps, sessionId, submissionId),
+    canDispatch: (sessionId, submission) => {
+      const session = sessions.get(sessionId)
+      return (
+        session !== undefined &&
+        canDispatchConversationSubmission(
+          deps,
+          sessionId,
+          session.journal.cursor().epoch,
+          submission
+        )
+      )
+    },
     sessions,
     adapter: deps.adapter,
     agents: deps.agents,

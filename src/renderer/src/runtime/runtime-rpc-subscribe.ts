@@ -16,7 +16,8 @@ export async function subscribeRuntimeRpc(
   target: RuntimeClientTarget,
   method: string,
   params: unknown,
-  handlers: RuntimeRpcSubscriptionHandlers
+  handlers: RuntimeRpcSubscriptionHandlers,
+  options: { expectedEnvironmentPairingRevision?: number } = {}
 ): Promise<{ unsubscribe: () => void }> {
   const onResponse = (response: RuntimeRpcResponse<unknown>): void => {
     if (!response.ok) {
@@ -34,7 +35,9 @@ export async function subscribeRuntimeRpc(
       method,
       params,
       timeoutMs: 15_000,
-      expectedEnvironmentPairingRevision: getRuntimeEnvironmentRevision(target.environmentId)
+      expectedEnvironmentPairingRevision:
+        options.expectedEnvironmentPairingRevision ??
+        getRuntimeEnvironmentRevision(target.environmentId)
     },
     { onResponse, onError: handlers.onError, onClose: handlers.onClose }
   )

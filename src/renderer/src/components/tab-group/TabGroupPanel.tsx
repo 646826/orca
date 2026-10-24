@@ -131,7 +131,7 @@ export default function TabGroupPanel({
       activeTabId={
         activeTab?.contentType === 'terminal'
           ? activeTab.entityId
-          : activeTab?.contentType === 'agent-session'
+          : activeTab?.contentType === 'agent-session' || activeTab?.contentType === 'conversation'
             ? activeTab.id
             : null
       }
@@ -142,7 +142,11 @@ export default function TabGroupPanel({
       onActivate={commands.activateTerminal}
       onClose={(terminalId) => {
         const item = resolveGroupTabFromVisibleId(model.groupTabs, terminalId)
-        if (item?.contentType === 'terminal' || item?.contentType === 'agent-session') {
+        if (
+          item?.contentType === 'terminal' ||
+          item?.contentType === 'agent-session' ||
+          item?.contentType === 'conversation'
+        ) {
           commands.closeItem(item.id)
           return
         }
@@ -185,6 +189,7 @@ export default function TabGroupPanel({
       activeFileId={
         activeTab?.contentType === 'terminal' ||
         activeTab?.contentType === 'agent-session' ||
+        activeTab?.contentType === 'conversation' ||
         activeTab?.contentType === 'browser' ||
         activeTab?.contentType === 'simulator'
           ? null
@@ -195,8 +200,8 @@ export default function TabGroupPanel({
       activeTabType={
         activeTab?.contentType === 'terminal'
           ? 'terminal'
-          : activeTab?.contentType === 'agent-session'
-            ? 'agent-session'
+          : activeTab?.contentType === 'agent-session' || activeTab?.contentType === 'conversation'
+            ? activeTab.contentType
             : activeTab?.contentType === 'browser'
               ? 'browser'
               : activeTab?.contentType === 'simulator'
@@ -339,6 +344,7 @@ export default function TabGroupPanel({
         {activeTab &&
           activeTab.contentType !== 'terminal' &&
           activeTab.contentType !== 'agent-session' &&
+          activeTab.contentType !== 'conversation' &&
           activeTab.contentType !== 'browser' &&
           activeTab.contentType !== 'simulator' && (
             // Why: a capture-phase owner, so Monaco never sees the drop and the file opens as a tab here.

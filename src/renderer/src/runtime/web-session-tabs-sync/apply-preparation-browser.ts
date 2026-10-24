@@ -9,6 +9,7 @@ import { buildMirroredEditorTabs } from './tab-builders'
 import { buildMirroredAgentTabs, isReadyBrowserTab, isReadyEditorTab } from './terminal-surfaces'
 import {
   hostSnapshotAffirmsAgentSessions,
+  hostSnapshotAffirmsWorktreeContents,
   hostSnapshotAffirmsClientHostedPages
 } from '../host-session-snapshot-authority'
 import type { prepareWebSessionTabsSnapshotBase } from './apply-preparation-base'
@@ -37,6 +38,7 @@ export function prepareWebSessionTabsSnapshotBrowser(
     reconcilesNonAgentTabs,
     batchContext
   } = base
+  const executionHostId = executionHostIdForSessionTabsOwner(environmentId)
   const targetGroupId = chooseTargetGroupId(state, snapshot)
   const hostGroupIdByTabId = buildHostGroupIdByTabId(snapshot.tabGroups)
   const currentUnifiedTabs = state.unifiedTabsByWorktree[worktreeId] ?? []
@@ -127,7 +129,7 @@ export function prepareWebSessionTabsSnapshotBrowser(
   )
   const mirroredAgentTabs = buildMirroredAgentTabs(
     snapshot,
-    executionHostIdForSessionTabsOwner(environmentId),
+    executionHostId,
     hostGroupIdByTabId,
     targetGroupId,
     mirroredTerminalTabEntries.length + mirroredBrowserTabs.length + mirroredEditorTabs.length,
@@ -178,7 +180,25 @@ export function prepareWebSessionTabsSnapshotBrowser(
     return sameOpenFiles(state.openFiles, next) ? state.openFiles : next
   })()
   advanceWebSessionOpenFilesIndex(batchContext, nextOpenFiles, worktreeId)
+  const mirroredChatTabIds = new Set(mirroredAgentTabs.map((entry) => entry.unifiedTab.id))
   const retainedUnifiedTabs = currentUnifiedTabs.filter((tab) => {
+    if (
+      (tab.contentType === 'agent-session' || tab.contentType === 'conversation') &&
+      tab.executionHostId !== undefined &&
+      tab.executionHostId !== executionHostId
+    ) {
+      return true
+    }
+    if (mirroredChatTabIds.has(tab.id)) {
+      return false
+    }
+    if (tab.contentType === 'conversation') {
+      // Older or incomplete inventories cannot prove that a durable surface disappeared.
+      return (
+        !hostSnapshotAffirmsWorktreeContents(snapshot) ||
+        snapshot.conversationSurfaces?.complete !== true
+      )
+    }
     if (tab.contentType === 'agent-session') {
       // A matching host row is authoritative; retaining the provisional tab beside its mirror
       // would briefly render two panes before lifecycle publication is recorded.

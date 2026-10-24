@@ -7,6 +7,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import type {
   CodexAppServerConnection,
   CodexAppServerConnectionHandlers,
@@ -34,6 +38,8 @@ import { scriptedCodexTransport } from './scripted-codex-transport.test-fixture'
 const CALLER = { callerKey: 'codex-held-sends-test' }
 
 let root: string
+
+let admission: ProfileStateRuntimeAdmission | undefined
 let host: StructuredAgentSessionHost
 let fence: number
 let handlers: CodexAppServerConnectionHandlers | undefined
@@ -95,6 +101,7 @@ async function rawSubmission(clientMessageId: string): Promise<AgentJournalSubmi
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'orca-codex-held-sends-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   answers = 0
   events.length = 0
   turns = codexTurnLifecycleFake(
@@ -157,6 +164,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   await rm(root, { recursive: true, force: true })
 })
 

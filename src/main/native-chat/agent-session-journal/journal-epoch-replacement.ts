@@ -1,3 +1,6 @@
+import { rollbackJournalEpochReceipts } from './journal-epoch-rollback'
+import { assertJournalSynchronousResult } from './journal-write-queue'
+import { captureQueuedJournalRowEvidence } from './queued-message-origin'
 import {
   journalItemEchoFields,
   journalItemEchoRestatement,
@@ -5,9 +8,7 @@ import {
 } from './journal-item-echo'
 // Republishing a live item set into a fresh epoch.
 //
-// One transaction: discard the old epoch's rows, insert the epoch row plus the
-// replacement items and the queue's cards still owed an answer, and move the
-// session projection.
+// One transaction retains pinned history and restates items, pending submissions and live cards.
 
 import { sameJournalConversation } from './journal-history-origin'
 import { isQueuedAgentJournalSubmission } from '../../../shared/agent-session-queued-submission'
@@ -54,7 +55,7 @@ import {
 } from './journal-row-table'
 import type { AgentJournalEpochReason, JournalRow } from './journal-row-schema'
 import { assertJournalFence } from './journal-write-guards'
-import type { JournalOperationReceipt } from './journal-row-writer'
+import type { JournalOperationReceipt, JournalRowTransactionHook } from './journal-row-writer'
 
 export type JournalReplacementItem = AgentJournalProducerLinkage & {
   echoOf?: JournalItemEcho['echoOf']
@@ -72,6 +73,7 @@ export type JournalReplacementItem = AgentJournalProducerLinkage & {
 }
 
 export function replaceJournalEpoch(input: {
+  requiredInTransaction?: JournalRowTransactionHook
   database: JournalHostDatabase
   identity: AgentSessionJournalIdentity
   reason: AgentJournalEpochReason
@@ -88,6 +90,9 @@ export function replaceJournalEpoch(input: {
   mintEpoch: () => string
   /** Called the instant the transaction commits, before any fallible follow-up. */
   onPublished: (loaded: JournalLoad) => void
+  onCommitted?: () => void
+  adoptionFailed?: (error: unknown) => never
+  rollbackFailed?: (error: unknown) => void
 }): void {
   const epoch = input.mintEpoch()
   const state = createJournalReducerState(input.identity.sessionId, epoch)
@@ -111,6 +116,12 @@ export function replaceJournalEpoch(input: {
   const rows: JournalRow[] = [epochRow]
   applyJournalRow(state, epochRow)
   for (const item of input.items) {
+    const key =
+      input.previous?.aliases.get(agentJournalItemKey(item.identity)) ??
+      agentJournalItemKey(item.identity)
+    if (input.previous?.items.has(key) && input.previous.itemFences.get(key) !== item.ownerFence) {
+      throw new Error('journal replacement item owner changed')
+    }
     const row = buildJournalItemRow({
       state,
       identity: item.identity,
@@ -196,24 +207,81 @@ export function replaceJournalEpoch(input: {
 
   const { sessionId } = input.identity
   const receipt = input.receipt?.({ epoch, sequence: state.lastSequence })
-  input.database.transaction((db) => {
-    const retired = readJournalSessionEpoch(db, sessionId)
-    if (retired !== null) {
-      deleteJournalEpochRows(db, sessionId, retired)
-    }
-    for (const row of rows) {
-      insertJournalRow(db, sessionId, row)
-    }
-    input.queue.receipt.write(db)
-    publishJournalSessionEpoch(db, input.identity, epoch)
-    receipt?.write(db)
-  })
-  input.queue.receipt.committed()
-
-  // COMMIT landed: on disk the superseded rows are gone and this epoch is the
-  // live one. The caller adopts that immediately, or a later failure leaves the
-  // live store writing into an epoch whose rows were just deleted.
-  state.oldestSequence = 1
-  input.onPublished({ state, newer: null, damage: null })
-  receipt?.committed()
+  try {
+    input.database.transaction((db) => {
+      const retired = readJournalSessionEpoch(db, sessionId)
+      if (retired !== null) {
+        const endSequence = db
+          .prepare(
+            'SELECT MAX(seq) AS end_sequence FROM journal_rows WHERE session_id = ? AND epoch = ?'
+          )
+          .get(sessionId, retired)?.end_sequence
+        if (
+          retired === epoch ||
+          typeof endSequence !== 'number' ||
+          !Number.isSafeInteger(endSequence) ||
+          endSequence < 1 ||
+          (input.previous &&
+            (input.previous.epoch !== retired || input.previous.lastSequence !== endSequence))
+        ) {
+          throw new Error('journal replacement source changed')
+        }
+        // Capture under the same writer transaction as retirement/publication. The reducer
+        // ignores this structural provenance; archived readers require this exact boundary.
+        epochRow.replacementOf = { epoch: retired, endSequence }
+      } else if (input.previous && input.previous.lastSequence > 0) {
+        throw new Error('journal replacement source changed')
+      }
+      for (const row of rows) {
+        insertJournalRow(db, sessionId, row)
+      }
+      assertJournalSynchronousResult(input.queue.receipt.write(db))
+      assertJournalSynchronousResult(receipt?.write(db))
+      for (const row of rows) {
+        captureQueuedJournalRowEvidence(db, sessionId, row)
+        const prior =
+          row.kind === 'item' && input.previous
+            ? input.previous.items.get(input.previous.aliases.get(row.itemId) ?? row.itemId)
+            : undefined
+        assertJournalSynchronousResult(
+          input.requiredInTransaction?.(
+            db,
+            row,
+            prior && input.previous
+              ? {
+                  previousSource: {
+                    epoch: input.previous.epoch,
+                    sequence: prior.sequence,
+                    ...(prior.sequenceIndex === undefined
+                      ? {}
+                      : { batchIndex: prior.sequenceIndex })
+                  }
+                }
+              : undefined
+          )
+        )
+      }
+      if (retired !== null) {
+        deleteJournalEpochRows(db, sessionId, retired)
+      }
+      publishJournalSessionEpoch(db, input.identity, epoch)
+    })
+  } catch (error) {
+    rollbackJournalEpochReceipts([input.queue.receipt, receipt], input.rollbackFailed)
+    throw error
+  }
+  try {
+    assertJournalSynchronousResult(input.queue.receipt.committed())
+    assertJournalSynchronousResult(receipt?.committed())
+    state.oldestSequence = 1
+    assertJournalSynchronousResult(input.onPublished({ state, newer: null, damage: null }))
+  } catch (error) {
+    input.adoptionFailed?.(error)
+    throw error
+  }
+  try {
+    assertJournalSynchronousResult(input.onCommitted?.())
+  } catch (error) {
+    console.warn('[journal-epoch] committed observer failed', error)
+  }
 }

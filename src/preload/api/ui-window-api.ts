@@ -13,6 +13,7 @@ export type UiWindowApi = {
     connectionId?: string | null
     runtimeEnvironmentId?: string | null
     agentSessionAttachment?: AgentSessionAttachmentClipboardTarget
+    localAttachmentOwner?: { sessionId: string }
     /** A native-chat composer paste, kept where its draft can bring it back. */
     forNativeChatDraft?: boolean
     /** With `forNativeChatDraft`: a structured chat on this machine, whose sends claim its pastes. */
@@ -23,6 +24,7 @@ export type UiWindowApi = {
     text: string
     runtimeEnvironmentId?: string | null
     agentSessionAttachment?: AgentSessionAttachmentClipboardTarget
+    localAttachmentOwner?: { sessionId: string }
   }) => Promise<string>
   clipboardHasImage: () => Promise<boolean | null>
   /** Empty if no files were copied or the host cannot list them. */

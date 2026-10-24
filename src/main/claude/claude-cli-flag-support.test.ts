@@ -46,6 +46,22 @@ function heldProbe() {
 }
 
 describe('whether a launch passes a Claude CLI flag', () => {
+  it('reads only cached version facts and invalidates on binary replacement', async () => {
+    let binary = 'one'
+    const { support, calls } = supportWith(
+      async () => '2.1.309',
+      20,
+      async () => binary
+    )
+    expect(await support.observedVersion?.(LAUNCH)).toBeNull()
+    expect(calls).not.toHaveBeenCalled()
+    await thinking(support, LAUNCH)
+    expect(await support.observedVersion?.(LAUNCH)).toBe('2.1.309')
+    binary = 'replacement'
+    expect(await support.observedVersion?.(LAUNCH)).toBeNull()
+    expect(calls).toHaveBeenCalledTimes(1)
+  })
+
   it("probes with the launch's own cwd and env and its own kill timeout, then remembers", async () => {
     const { support, calls } = supportWith(async () => '2.1.280')
     await expect(thinking(support, LAUNCH)).resolves.toBe(true)

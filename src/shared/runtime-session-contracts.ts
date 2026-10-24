@@ -1,3 +1,4 @@
+import type { ConversationSurfaceInventory } from './conversation-inventory'
 import type { MobileProjectSectionCatalog } from './mobile-project-sections-contract'
 import type { AgentStatusOrchestrationContext } from './agent-status-types'
 import type { RemoteServerUpdateSupport } from './remote-server-update'
@@ -280,6 +281,7 @@ export type RuntimeMobileSessionRetiredTerminalSurface = {
 
 export type RuntimeMobileSessionTabsResult = {
   worktree: string
+  conversationSurfaces?: ConversationSurfaceInventory
   /** Query-only truth about an executing launch that owns this workspace's first surface. */
   initialSurfaceLaunch?: { launchId: string; agent: TuiAgent }
   publicationEpoch: string
@@ -287,7 +289,14 @@ export type RuntimeMobileSessionTabsResult = {
   navigationIntent?: 'follow'
   activeGroupId: string | null
   activeTabId: string | null
-  activeTabType: 'terminal' | 'markdown' | 'file' | 'browser' | 'agent-session' | null
+  activeTabType:
+    | 'terminal'
+    | 'markdown'
+    | 'file'
+    | 'browser'
+    | 'agent-session'
+    | 'conversation'
+    | null
   tabGroups?: RuntimeMobileSessionTabGroup[]
   tabGroupLayout?: TabGroupLayoutNode | null
   retiredTerminalSurfaces?: RuntimeMobileSessionRetiredTerminalSurface[]

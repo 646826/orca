@@ -81,6 +81,9 @@ export function getMobileSessionTabTitle(
   if (tab.type === 'file') {
     return tab.title || 'File'
   }
+  if (tab.type === 'conversation') {
+    return tab.title || 'Conversation'
+  }
   if (tab.type === 'agent-session') {
     return tab.title || 'Chat'
   }

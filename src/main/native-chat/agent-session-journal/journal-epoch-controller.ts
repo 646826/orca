@@ -12,11 +12,12 @@ import type { JournalLoad } from './journal-open'
 import type { AgentJournalEpochReason } from './journal-row-schema'
 import { assertJournalFence, assertJournalWritable } from './journal-write-guards'
 import type { JournalWriteBody } from './journal-write-queue'
-import type { JournalOperationReceipt } from './journal-row-writer'
+import type { JournalOperationReceipt, JournalRowTransactionHook } from './journal-row-writer'
 
 export class JournalEpochController {
   constructor(
     private readonly deps: {
+      requiredInTransaction?: JournalRowTransactionHook
       identity: AgentSessionJournalIdentity
       now: () => number
       mintEpoch: () => string
@@ -31,11 +32,15 @@ export class JournalEpochController {
       queueRestatement: () => JournalQueueRestatement
       cursor: () => AgentJournalCursor
       adopt: (loaded: JournalLoad) => void
+      notifyCommitted?: () => void
+      adoptionFailed?: (error: unknown) => never
+      rollbackFailed?: (error: unknown) => void
     }
   ) {}
 
   start(reason: AgentJournalEpochReason, fence: number): void {
     publishNewEpoch({
+      requiredInTransaction: this.deps.requiredInTransaction,
       database: this.deps.database(),
       identity: this.deps.identity,
       epoch: this.deps.mintEpoch(),
@@ -43,7 +48,10 @@ export class JournalEpochController {
       fence,
       now: this.deps.now(),
       queue: this.deps.queueRestatement(),
-      onPublished: this.deps.adopt
+      onPublished: this.deps.adopt,
+      onCommitted: this.deps.notifyCommitted,
+      rollbackFailed: this.deps.rollbackFailed,
+      adoptionFailed: this.deps.adoptionFailed
     })
   }
 
@@ -72,6 +80,7 @@ export class JournalEpochController {
       assertJournalWritable(this.deps.readOnly(), this.deps.identity.sessionId)
       assertJournalFence(fence, this.deps.highestFence())
       replaceJournalEpoch({
+        requiredInTransaction: this.deps.requiredInTransaction,
         database: this.deps.database(),
         identity: this.deps.identity,
         reason,
@@ -83,7 +92,10 @@ export class JournalEpochController {
         queue: this.deps.queueRestatement(),
         now: this.deps.now,
         mintEpoch: this.deps.mintEpoch,
-        onPublished: this.deps.adopt
+        onPublished: this.deps.adopt,
+        onCommitted: this.deps.notifyCommitted,
+        rollbackFailed: this.deps.rollbackFailed,
+        adoptionFailed: this.deps.adoptionFailed
       })
       return this.deps.cursor()
     })

@@ -10,9 +10,11 @@ import {
   type StructuredAgentSessionRestartAudience
 } from '../../../native-chat/agent-session-wire/structured-agent-session-restart-resume-set'
 import { STRUCTURED_AGENT_SESSION_REGISTERED_AGENTS_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import { NATIVE_CONVERSATION_RUNTIME_CAPABILITY } from '../../../../shared/conversation-runtime-capabilities'
 import { DESKTOP_RENDERER_RUNTIME_CLIENT_CAPABILITIES } from '../../../ipc/desktop-renderer-runtime-capabilities'
 import {
   call,
+  conversationMembership,
   clearStructuredHostStub,
   hostStub,
   STRUCTURED_CLIENT
@@ -37,6 +39,12 @@ const NEW_CLIENT = {
     ...OLD_CLIENT.clientCapabilities,
     STRUCTURED_AGENT_SESSION_REGISTERED_AGENTS_RUNTIME_CAPABILITY
   ]
+}
+const LEGACY_CLIENT = {
+  ...NEW_CLIENT,
+  clientCapabilities: NEW_CLIENT.clientCapabilities.filter(
+    (capability) => capability !== NATIVE_CONVERSATION_RUNTIME_CAPABILITY
+  )
 }
 
 /** A host holding a Claude and a Grok offer, plus a recorded Grok failure. */
@@ -150,3 +158,32 @@ describe.each([
     expect(host.offers()).toEqual([])
   })
 })
+
+it.each(['agentSession.restartContinue', 'agentSession.restartResumableDismiss'])(
+  'legacy bulk %s checks all selected offers before effects',
+  async (method) => {
+    const { restartResume, offers } = installRestartHost()
+    conversationMembership.mockImplementation((id) =>
+      id === 'grok-session' ? { conversationId: 'conversation' } : null
+    )
+    const blocked = await call(method, {}, LEGACY_CLIENT)
+    expect(blocked).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining('structured_agent_session_unsupported') }
+    })
+    expect(restartResume.continueAfterRestart).not.toHaveBeenCalled()
+    expect(restartResume.dismiss).not.toHaveBeenCalled()
+    expect(offers()).toEqual([CLAUDE_OFFER, GROK_OFFER])
+    expect((await call(method, { sessionIds: ['claude-session'] }, LEGACY_CLIENT)).ok).toBe(true)
+    if (method === 'agentSession.restartContinue') {
+      expect(restartResume.continueAfterRestart).toHaveBeenCalledOnce()
+      expect(restartResume.continueAfterRestart.mock.lastCall?.[0]).toEqual(['claude-session'])
+      expect(restartResume.dismiss).not.toHaveBeenCalled()
+    } else {
+      expect(restartResume.dismiss).toHaveBeenCalledOnce()
+      expect(restartResume.dismiss.mock.lastCall?.[0]).toEqual(['claude-session'])
+      expect(restartResume.continueAfterRestart).not.toHaveBeenCalled()
+      expect(offers()).toEqual([GROK_OFFER])
+    }
+  }
+)

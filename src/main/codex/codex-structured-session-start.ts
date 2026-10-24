@@ -1,3 +1,8 @@
+import {
+  codexEvidenceToolSpec,
+  type CodexConversationEvidence
+} from './codex-conversation-evidence'
+import { codexConversationCapabilities } from './codex-conversation-capabilities'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import type { StructuredAgentSessionAcquireInput } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
@@ -38,6 +43,7 @@ import type { CodexStructuredSessionTeardown } from './codex-structured-session-
 type CodexOpenContext = {
   input: StructuredAgentSessionAcquireInput
   deps: CodexStructuredSessionAdapterDeps
+  conversationEvidence?: CodexConversationEvidence
   launch: CodexStructuredLaunch
   account: AgentSessionAccountKind | undefined
   sessions: Map<string, CodexSession>
@@ -77,11 +83,14 @@ export async function openCodexStructuredSession(
     assertCodexConnectionOpen(connection, sessionId)
   }
   current()
-  await waitForPromiseWithSignal(
+  const contextDeliveryVersion = await waitForPromiseWithSignal(
     initializeCodexAppServerConnection(connection, null),
     openInput.signal
   )
   current()
+  if (start.conversationEvidence && contextDeliveryVersion !== '0.159.0-alpha.3') {
+    throw new Error('Codex dynamic tool protocol version is unverified')
+  }
   const threadLaunch = await waitForPromiseWithSignal(
     withCodexVisualsThreadConfig(connection, launch, {
       sessionId,
@@ -97,7 +106,13 @@ export async function openCodexStructuredSession(
   const opened = await waitForPromiseWithSignal(
     openCodexThread(
       connection,
-      { ...threadLaunch, commandEnv },
+      {
+        ...threadLaunch,
+        commandEnv,
+        ...(start.conversationEvidence
+          ? { dynamicTools: [codexEvidenceToolSpec(start.conversationEvidence)] }
+          : {})
+      },
       // Long rollout/MCP setup relies on the host ceiling and cancellation unless a timeout is supplied.
       deps.requestTimeoutMs ?? null,
       openInput.signal
@@ -136,6 +151,24 @@ export async function openCodexStructuredSession(
   }
   const catalogAccess = codexAcquireCatalogAccess(deps, launch, sessionId)
   const session: CodexSession = {
+    ...(start.conversationEvidence ? { conversationEvidence: start.conversationEvidence } : {}),
+    contextDeliveryObservation: {
+      agent: 'codex',
+      protocol: 'codex-app-server-v2',
+      version: contextDeliveryVersion,
+      nativeSessionId: opened.threadId,
+      acquisitionGeneration: generation,
+      fence: input.fence,
+      launch: {
+        command: launch.command,
+        cwd: launch.cwd,
+        permission: JSON.stringify(launch.permissionPolicy ?? null)
+      },
+      options: {},
+      initialized: true,
+      closed: false,
+      resume: true
+    },
     events: input.events,
     account: start.account,
     connection,
@@ -164,6 +197,20 @@ export async function openCodexStructuredSession(
   }
   current()
   sessions.set(sessionId, session)
+  if (start.conversationEvidence) {
+    const capabilities = codexConversationCapabilities(session)
+    if (capabilities.state !== 'verified') {
+      throw new Error('Codex tool ownership is unverified')
+    }
+    start.conversationEvidence.permit.registration.confirm({
+      nativeSessionId: opened.threadId,
+      acquisitionGeneration: generation,
+      runtimeFence: input.fence,
+      baseCapabilityFingerprint: capabilities.runtimeFingerprint,
+      launchFingerprint: start.conversationEvidence.launchFingerprint,
+      transport: 'codex-dynamic-tool'
+    })
+  }
   for (const event of attempt.window.drain()) {
     event()
   }

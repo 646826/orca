@@ -1,3 +1,7 @@
+import {
+  NativeChatAgentSwitchPicker,
+  type NativeChatAgentSwitchPickerProps
+} from './NativeChatAgentSwitchPicker'
 import { ArrowUp, CircleAlert, Mic, Plus, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -14,6 +18,7 @@ import type { NativeChatContextUsageSummary } from './native-chat-context-usage-
 import type { NativeChatOptionPickerRequest } from './native-chat-composer-types'
 
 export type NativeChatComposerActionsProps = {
+  agentSwitch?: NativeChatAgentSwitchPickerProps
   attachDisabled: boolean
   dictationDisabled: boolean
   sendDisabled: boolean
@@ -66,7 +71,8 @@ export function NativeChatComposerActions({
   onExitGoalMode,
   contextUsage,
   focusComposer,
-  agent
+  agent,
+  agentSwitch
 }: NativeChatComposerActionsProps): React.JSX.Element {
   const stops = isWorking
   const handleCriticalAction = (event: React.MouseEvent<HTMLButtonElement>): void => {
@@ -139,6 +145,7 @@ export function NativeChatComposerActions({
       <div className="ml-auto flex items-center gap-1.5">
         {/* Why: keep the session picker beside the actions it affects; only the
         context ring separates it from dictation. */}
+        {agentSwitch ? <NativeChatAgentSwitchPicker {...agentSwitch} /> : null}
         <NativeChatSessionOptionPickers
           surface={sessionOptionsSurface}
           snapshot={sessionOptionsSnapshot}

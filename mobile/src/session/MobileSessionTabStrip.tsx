@@ -213,10 +213,19 @@ export function MobileSessionTabStrip({
                   tabState && tabState !== 'idle' ? `${title}, ${agentStateLabel(tabState)}` : title
                 }
                 accessibilityState={{ selected: t.id === activeSessionTabId }}
-                onLongPress={() => {
-                  triggerMediumImpact()
-                  openSessionTabActionSheetAfterKeyboardDismiss(t)
-                }}
+                accessibilityHint={
+                  t.type === 'conversation'
+                    ? 'Read-only conversation. Manage this conversation on desktop.'
+                    : undefined
+                }
+                onLongPress={
+                  t.type === 'conversation'
+                    ? undefined
+                    : () => {
+                        triggerMediumImpact()
+                        openSessionTabActionSheetAfterKeyboardDismiss(t)
+                      }
+                }
                 delayLongPress={400}
               >
                 <View style={styles.tabLabelRow}>
@@ -230,6 +239,9 @@ export function MobileSessionTabStrip({
                     )}
                     {t.type === 'file' && (
                       <File size={13} color={colors.textSecondary} strokeWidth={2.1} />
+                    )}
+                    {t.type === 'conversation' && (
+                      <MobileAgentIcon agentId={t.activeAgent} size={13} />
                     )}
                     {t.type === 'agent-session' && <MobileAgentIcon agentId={t.agent} size={13} />}
                     {t.type === 'terminal' &&

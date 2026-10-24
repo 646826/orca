@@ -315,3 +315,16 @@ describe('the store fallback copy', () => {
     ).toMatchObject({ details: { currentFence: 7 }, currentFence: 7 })
   })
 })
+
+it.each(['conversationStartupTrustRequired', 'conversationNativeRebuildRequired'] as const)(
+  'returns semantic %s on the first processless refusal and durable replay',
+  (reason) => {
+    const error = new AgentSessionPreSpawnError(new Error('internal launch diagnostic'), { reason })
+    const first = failedAcquisitionRefusal(error, CLAUDE_CREATE)
+    expect(first).toMatchObject({ ok: false, refusal: { details: { reason } } })
+    const outcome = failedAcquisitionSettlement(error, CLAUDE_CREATE).outcome
+    expect(outcome).toMatchObject({ status: 'failed', details: { reason } })
+    expect(replay(outcome)).toMatchObject({ refusal: { details: { reason } } })
+    expect(first?.refusal.message).not.toContain('internal launch diagnostic')
+  }
+)

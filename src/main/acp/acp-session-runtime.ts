@@ -168,12 +168,24 @@ export class AcpSessionRuntime {
     return this.starting
   }
 
-  async prompt(prompt: PromptRequest['prompt'], meta?: Meta): Promise<PromptResponse> {
+  async prompt(
+    prompt: PromptRequest['prompt'],
+    meta?: Meta,
+    beforeWrite?: (params: PromptRequest) => Promise<void>,
+    afterWrite?: () => void
+  ): Promise<PromptResponse> {
     if (this.activePrompt) {
       throw new Error('ACP prompt already in progress')
     }
     const params: PromptRequest = { sessionId: this.sessionId(), prompt, ...withMeta(meta) }
-    const response = this.call('session/prompt', params, PromptResponseSchema)
+    const response = beforeWrite
+      ? (async () => {
+          await beforeWrite(params)
+          const written = this.call('session/prompt', params, PromptResponseSchema)
+          afterWrite?.()
+          return written
+        })()
+      : this.call('session/prompt', params, PromptResponseSchema)
     this.activePrompt = response
     try {
       return await response

@@ -102,8 +102,21 @@ export async function applyCodexStructuredSessionOption(
   key: string,
   value: string
 ): Promise<Readonly<Record<string, string>>> {
+  return applyCodexStructuredSessionOptionValue(session, key, value)
+}
+
+export function applyCodexStructuredSessionOptionValue(
+  session: CodexSession,
+  key: string,
+  value: string
+): Readonly<Record<string, string>> {
   try {
-    return applyValidatedCodexStructuredSessionOption(session, key, value)
+    const selected = applyValidatedCodexStructuredSessionOption(session, key, value)
+    if (session.contextDeliveryObservation) {
+      session.contextDeliveryObservation.selectionRevision =
+        (session.contextDeliveryObservation.selectionRevision ?? 0) + 1
+    }
+    return selected
   } catch (error) {
     throw new AgentSessionOptionRejectedError(error)
   }

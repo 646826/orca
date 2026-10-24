@@ -1,3 +1,5 @@
+import { ConversationRefusal } from '../../native-chat/conversations/conversation-read-model'
+import { ConversationRpcRefusal } from '../../../shared/conversation-rpc-refusal'
 // Why: every RPC response needs the same runtimeId envelope, and the
 // runtime/browser error allowlists define the contract the CLI relies on to
 // format human-facing messages. Centralizing this mapping keeps the allowlist
@@ -186,6 +188,17 @@ const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
 
 export function mapRuntimeError(id: string, meta: RpcEnvelopeMeta, error: unknown): RpcFailure {
   const message = error instanceof Error ? error.message : String(error)
+  if (error instanceof ConversationRefusal) {
+    return errorResponse(id, meta, 'conversation_refused', 'conversation_refused', {
+      reason: error.reason
+    })
+  }
+  if (error instanceof ConversationRpcRefusal) {
+    return errorResponse(id, meta, 'conversation_refused', 'conversation_refused', {
+      reason: error.reason,
+      ...(error.errorText ? { errorText: error.errorText } : {})
+    })
+  }
   if (isAgentSessionRefusalError(error)) {
     return agentSessionRefusalErrorResponse(id, meta, error)
   }

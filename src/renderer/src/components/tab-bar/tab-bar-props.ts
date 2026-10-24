@@ -39,7 +39,7 @@ export type TabBarProps = {
   clientHostedBrowserRows?: readonly ClientHostedBrowserRow[]
   /** The group's own active tab at render time; a client-hosted selection dies when it moves. */
   groupActiveTabId?: string | null
-  agentSessionTabs?: (Tab & { contentType: 'agent-session' })[]
+  agentSessionTabs?: (Tab & { contentType: 'agent-session' | 'conversation' })[]
   activeFileId?: string | null
   activeBrowserTabId?: string | null
   activeSimulatorTabId?: string | null

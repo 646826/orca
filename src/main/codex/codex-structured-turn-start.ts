@@ -1,3 +1,5 @@
+import type { ConversationBeforeContextDispatch } from '../native-chat/conversations/conversation-delivery-transport'
+import { AgentSessionPreDispatchError } from '../native-chat/agent-session-wire/structured-agent-session-operation-settlement'
 import { pickedSkillsInText } from '../../shared/structured-agent-session-send-mutation'
 import type { CodexSkillReport } from './codex-structured-skill-report'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
@@ -15,7 +17,7 @@ import {
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
-import { codexTurnRequestOptions } from './codex-structured-service-tier'
+import { codexRanOptions, codexTurnRequestOptions } from './codex-structured-service-tier'
 import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
@@ -91,21 +93,28 @@ async function steerCodexTurn(
     body: AgentJournalMessageItem
     timeoutMs?: number
     signal?: AbortSignal
+    beforeDispatch?: () => Promise<void>
+    beforeContextDispatch?: ConversationBeforeContextDispatch
+    onTurnCorrelated?: (turnId: string) => void
     onReply?: () => void
   }
 ): Promise<{ turnId: string; via: 'steer' } | null> {
   try {
+    await input.beforeDispatch?.()
     checkDispatchAuthority(host, input.clientMessageId, input.signal)
-    const answer = await host.connection.request(
-      'turn/steer',
-      {
-        threadId: host.threadId,
-        expectedTurnId,
-        clientUserMessageId: input.clientMessageId,
-        input: turnInputFor(host, input.body)
-      },
-      { timeoutMs: input.timeoutMs, onReply: input.onReply }
-    )
+    const params = {
+      threadId: host.threadId,
+      expectedTurnId,
+      clientUserMessageId: input.clientMessageId,
+      input: turnInputFor(host, input.body)
+    }
+    await input.beforeContextDispatch?.({ transport: 'codex', payload: params })
+    await input.beforeDispatch?.()
+    checkDispatchAuthority(host, input.clientMessageId, input.signal)
+    const answer = await host.connection.request('turn/steer', params, {
+      timeoutMs: input.timeoutMs,
+      onReply: input.onReply
+    })
     return { turnId: readCodexTurnId(answer) ?? expectedTurnId, via: 'steer' }
   } catch (error) {
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
@@ -125,6 +134,9 @@ export async function startCodexTurn(
     timeoutMs?: number
     turnOptions?: Readonly<Record<string, string>>
     signal?: AbortSignal
+    beforeDispatch?: () => Promise<void>
+    beforeContextDispatch?: ConversationBeforeContextDispatch
+    onTurnCorrelated?: (turnId: string) => void
     onReply?: () => void
   }
 ): Promise<{ turnId: string | null; via: AgentJournalTurnJoin } | false> {
@@ -151,6 +163,7 @@ export async function startCodexTurn(
   if (steered) {
     return steered
   }
+  await input.beforeDispatch?.()
   checkDispatchAuthority(host, input.clientMessageId, input.signal)
   const previousApplied = host.appliedTurnOptions
   const previousOptions = input.turnOptions ? new Map(host.options) : null
@@ -164,16 +177,19 @@ export async function startCodexTurn(
   const requested = codexTurnRequestOptions(host)
   let answer: unknown
   try {
-    answer = await host.connection.request(
-      'turn/start',
-      {
-        threadId: host.threadId,
-        clientUserMessageId: input.clientMessageId,
-        input: turnInputFor(host, input.body),
-        ...requested
-      },
-      { timeoutMs: input.timeoutMs, onReply: input.onReply }
-    )
+    const params = {
+      threadId: host.threadId,
+      clientUserMessageId: input.clientMessageId,
+      input: turnInputFor(host, input.body),
+      ...requested
+    }
+    await input.beforeContextDispatch?.({ transport: 'codex', payload: params })
+    await input.beforeDispatch?.()
+    checkDispatchAuthority(host, input.clientMessageId, input.signal)
+    answer = await host.connection.request('turn/start', params, {
+      timeoutMs: input.timeoutMs,
+      onReply: input.onReply
+    })
   } catch (error) {
     if (
       previousOptions &&
@@ -200,6 +216,9 @@ export async function dispatchCodexTurn(
     requestedAt?: number
     turnOptions?: Readonly<Record<string, string>>
     signal?: AbortSignal
+    beforeDispatch?: () => Promise<void>
+    beforeContextDispatch?: ConversationBeforeContextDispatch
+    onTurnCorrelated?: (turnId: string) => void
   },
   timeoutMs: number | undefined
 ): Promise<AgentSessionDispatchOutcome> {
@@ -212,6 +231,10 @@ export async function dispatchCodexTurn(
   try {
     answer = await startCodexTurn(session, { ...input, timeoutMs, onReply })
   } catch (error) {
+    if (error instanceof AgentSessionPreDispatchError) {
+      session.dispatchEchoes.disarm(input.clientMessageId)
+      throw error
+    }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       // Codex answered and declined, so no echo for this write can arrive.
       session.dispatchEchoes.disarm(input.clientMessageId)
@@ -243,6 +266,9 @@ export async function dispatchCodexTurn(
       answeredAt ?? session.dispatchEchoes.tick()
     )
   }
+  if (answer.turnId) {
+    input.onTurnCorrelated?.(answer.turnId)
+  }
   const endedFirst = answer.turnId
     ? session.dispatchEchoes.bindTurn(
         input.clientMessageId,
@@ -260,18 +286,4 @@ export async function dispatchCodexTurn(
         ...rejection
       }
     : { state: 'admitted', ranOptions: codexRanOptions(session) }
-}
-
-/** Steers retain running-turn options; starts use request overrides over thread defaults. */
-function codexRanOptions(session: CodexTurnHost): Record<string, string> {
-  const requested = codexTurnRequestOptions(session)
-  const thread = session.reportedOptions ?? {}
-  const model = requested.model ?? thread.model
-  const effort = requested.effort ?? (model === thread.model ? thread.effort : undefined)
-  const { serviceTier } = requested
-  return {
-    ...(model ? { model } : {}),
-    ...(effort ? { effort } : {}),
-    ...(serviceTier ? { serviceTier } : {})
-  }
 }

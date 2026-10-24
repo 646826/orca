@@ -1,4 +1,7 @@
+import type { ConversationBeforeContextDispatch } from '../conversations/conversation-delivery-transport'
+import type { ConversationEvidenceLaunchCapture } from '../conversations/conversation-evidence-registration'
 import type { AiVaultConversationCopy } from '../../../shared/ai-vault-resume-preparation'
+import type { ConversationContextCapabilities } from '../../../shared/conversation-context-capabilities'
 import type { AgentSessionAccountKind } from '../../../shared/agent-session-availability'
 import type {
   AgentSessionRewindFork,
@@ -118,18 +121,8 @@ export type AgentSessionAcquisition = {
 }
 
 /** A refusal before spawn that a person can act on; the site that refused names it. */
-export type AgentSessionPreSpawnReason = Extract<
-  AgentSessionRefusalReason<'agent_session_operation_invalid'>,
-  | 'managedAccountEnvOverride'
-  | 'accountSwitchInProgress'
-  | 'managedAccountUnsupported'
-  | 'launchFolderMissing'
-  | 'historyInOtherAccount'
-  | 'claudeAccountFolderMissing'
-  | 'claudeAccountSetupFailed'
-  | 'agentCommandNotRunnable'
-  | 'runtimeNotInstalled'
->
+export type { AgentSessionPreSpawnReason } from './structured-agent-session-pre-spawn-reason'
+import type { AgentSessionPreSpawnReason } from './structured-agent-session-pre-spawn-reason'
 
 /** Acquisition failed with first-hand proof that no provider process existed. */
 export class AgentSessionPreSpawnError extends Error {
@@ -176,6 +169,7 @@ export type AgentSessionDispatchOutcome =
   | ({
       state: 'accepted'
       providerIdentity: AgentJournalItemIdentity
+      originCorrelation?: 'exact'
     } & AgentSessionRanOptionsEvidence)
   /**
    * The provider transport took the message; identity settles later, out of band.
@@ -233,6 +227,7 @@ export type StructuredAgentSessionAcquireInput = Pick<
   'identity' | 'fence' | 'spawnToken'
 > &
   Partial<Omit<StructuredAgentSessionStartupAttempt, 'identity' | 'fence' | 'spawnToken'>> & {
+    evidenceLaunch?: ConversationEvidenceLaunchCapture
     recordPhase?: AgentSessionCreatePhaseRecorder
     /** Durably records the child's identity the moment it exists, before any handshake, so a crash
      *  mid-start leaves an owner recovery can stop. The acquisition's `process` must match it. */
@@ -250,6 +245,7 @@ export type StructuredAgentSessionSetOptionInput = {
 }
 
 export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & {
+  contextDeliveryCapabilities?(sessionId: string, agent?: string): ConversationContextCapabilities
   /** Opens the published process under the host's startup signal. */
   open: StructuredAgentSessionProviderOpen
   /** Provider-aware capability check for hosts that route more than one adapter. */
@@ -283,6 +279,10 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
     requestedAt?: number
     /** Revalidate after preparation, immediately before writing to the provider. */
     beforeDispatch?: () => Promise<void>
+    /** Final native request observation; never substitutes for dispatch authority. */
+    beforeContextDispatch?: ConversationBeforeContextDispatch
+    /** Candidate activation requires a causally matched native acceptance. */
+    requireExactOrigin?: true
     /** Local preparation boundary before choices can mutate the provider. */
     onInputPreparation?: () => void
     /** In-process checkpoint after applying choices, before capturing execution evidence. */

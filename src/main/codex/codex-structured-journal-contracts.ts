@@ -75,7 +75,11 @@ export type CodexItemTranslation =
   | {
       handled: true
       admission: CodexJournalTranslationAdmission
-      dispatchEcho?: { clientMessageId: string; providerIdentity: AgentJournalItemIdentity }
+      dispatchEcho?: {
+        clientMessageId: string
+        providerIdentity: AgentJournalItemIdentity
+        originCorrelation?: 'exact'
+      }
     }
 
 export const CODEX_JOURNAL_ADMITTED = { accepted: true } as const

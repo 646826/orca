@@ -10,6 +10,12 @@ import {
   leaf
 } from '../../shared/workspace-layout/workspace-layout-session.test-fixture'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
+import { addEnvironmentFromPairingCode } from '../../shared/runtime-environment-store'
+import { pairingCode } from './runtime-environments/runtime-environments-ipc-test-harness'
+import {
+  getRuntimeEnvironmentStatusOwner,
+  resetRuntimeEnvironmentStatusOwners
+} from './runtime-environments/runtime-environment-request-connections'
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
@@ -18,6 +24,7 @@ const { handlers } = vi.hoisted(() => ({
 vi.mock('../../shared/layout-owner-switch', () => ({ ORCA_LAYOUT_OWNER_IS_MAIN: true }))
 vi.mock('electron', () => ({
   app: { getPath: () => testState.dir },
+  BrowserWindow: { getAllWindows: () => [] },
   safeStorage: { isEncryptionAvailable: () => false },
   ipcMain: {
     handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
@@ -33,6 +40,14 @@ vi.mock('../telemetry/cohort-classifier', () => ({ getCohortAtEmit: vi.fn().mock
 vi.mock('../ssh/config/ssh-config-parser', () => ({
   loadUserSshConfig: vi.fn(),
   sshConfigHostsToTargets: vi.fn()
+}))
+vi.mock('../../shared/remote-runtime-client', () => ({
+  sendRemoteRuntimeRequest: vi.fn(async () => ({
+    id: 'status',
+    ok: true,
+    result: { runtimeId: 'old-host', capabilities: [] },
+    _meta: { runtimeId: 'old-host' }
+  }))
 }))
 
 import { registerSessionHandlers } from './session'
@@ -84,6 +99,16 @@ async function call(channel: string, ...args: unknown[]): Promise<void> {
   await handlers.get(channel)!({}, ...args)
 }
 
+async function pairedOldHost() {
+  const environment = addEnvironmentFromPairingCode(testState.dir, {
+    name: 'old-host',
+    pairingCode: pairingCode()
+  })
+  const owner = getRuntimeEnvironmentStatusOwner(testState.dir, environment.id)
+  await expect(owner.refresh()).resolves.toMatchObject({ ok: true })
+  return { hostId: `runtime:${environment.id}` as const, owner }
+}
+
 describe('a window save in a layout-owner build', () => {
   let store: ReturnType<typeof createStore>
   beforeEach(() => {
@@ -91,6 +116,9 @@ describe('a window save in a layout-owner build', () => {
     store = createStore()
     // Main's reconnect facts are pinned elsewhere (window-save-reconnect-facts.test.ts): kept as saved.
     const runtime = {
+      openAgentSessionRecordStore: async () => ({
+        conversations: { surfaces: { list: () => [] } }
+      }),
       shutdownReconnectFactsFor: (session: WorkspaceSessionState) => ({
         activeWorktreeIdsOnShutdown: session.activeWorktreeIdsOnShutdown,
         remoteSessionIdsByTabId: session.remoteSessionIdsByTabId,
@@ -101,6 +129,7 @@ describe('a window save in a layout-owner build', () => {
     registerSessionHandlers(store, runtime as never)
   })
   afterEach(async () => {
+    resetRuntimeEnvironmentStatusOwners()
     await closeTestStores()
     rmSync(testState.dir, { recursive: true, force: true })
   })
@@ -174,10 +203,23 @@ describe('a window save in a layout-owner build', () => {
   })
 
   it('writes a paired server’s partition as the window sent it', async () => {
-    store.setWorkspaceSession(mainSession(), 'runtime:env-1')
+    const { hostId } = await pairedOldHost()
+    store.setWorkspaceSession(mainSession(), hostId)
 
-    await call('session:set', laggingWindowSave(), 'runtime:env-1')
+    await call('session:set', laggingWindowSave(), hostId)
 
-    expect(terminalTabs(store.getWorkspaceSession('runtime:env-1'))).toEqual(['tab-a', 'tab-new'])
+    expect(terminalTabs(store.getWorkspaceSession(hostId))).toEqual(['tab-a', 'tab-new'])
+  })
+
+  it('refuses a paired server save after its verified status is revoked', async () => {
+    const { hostId, owner } = await pairedOldHost()
+    store.setWorkspaceSession(mainSession(), hostId)
+    owner.authenticationRejected()
+
+    await expect(call('session:set', laggingWindowSave(), hostId)).rejects.toMatchObject({
+      reason: 'unsupported'
+    })
+
+    expect(terminalTabs(store.getWorkspaceSession(hostId))).toEqual(['tab-a', 'tab-b'])
   })
 })

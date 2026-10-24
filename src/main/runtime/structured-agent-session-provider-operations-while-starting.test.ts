@@ -4,6 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { agentJournalSubmissionKey } from '../../shared/agent-session-journal-item-key'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import type { AgentSessionMutationEnvelope } from '../../shared/agent-session-wire'
@@ -28,12 +32,15 @@ import {
 
 const CALLER = { callerKey: 'provider-operations-test' }
 let root: string | undefined
+let admission: ProfileStateRuntimeAdmission | undefined
 let operations = 0
 /** The attach that opened the chat; a reconnecting view replays it. */
 let openedWith: Parameters<StructuredAgentSessionHost['attach']>[1] | undefined
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (root) {
     await rm(root, { recursive: true, force: true })
     root = undefined
@@ -68,6 +75,7 @@ async function openChat(
 ): Promise<StructuredAgentSessionHost> {
   const { agent } = definition
   root = await mkdtemp(join(tmpdir(), `orca-provider-operations-${agent}-`))
+  admission = acquireProfileStateRuntimeAdmission(root)
   const directory = root
   const host = await ensureStructuredAgentSessionHost({
     logger: createStructuredAgentSessionLogger(),

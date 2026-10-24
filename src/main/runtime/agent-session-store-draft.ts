@@ -1,3 +1,5 @@
+import { agentSessionRefusalError } from '../../shared/agent-session-wire-refusals'
+import type { AgentSessionRecord } from '../../shared/agent-session-record'
 /**
  * A transaction applies to a draft of the published store state, and the store publishes the draft
  * only once its rows have committed, so no reader ever sees a change that might still roll back.
@@ -137,4 +139,24 @@ export function agentSessionStoreDraftRowWrites(
     retiredClaimKeys,
     sessionTabs: tabsChanged ? { recorded: draft.sessionTabs !== null, tabs } : null
   }
+}
+
+export function mutateAgentSessionStoreRecord(
+  draft: AgentSessionStoreState,
+  sessionId: string,
+  apply: (record: AgentSessionRecord) => AgentSessionRecord
+): AgentSessionRecord {
+  const record = draft.records.get(sessionId)
+  if (!record) {
+    throw draft.unreadableRecords.has(sessionId)
+      ? agentSessionRefusalError('execution_owner_reconciling', {
+          reason: 'recordUnreadable'
+        })
+      : agentSessionRefusalError('agent_session_identity_required', {
+          reason: 'recordMissing'
+        })
+  }
+  const next = apply(record)
+  draft.records.set(sessionId, next)
+  return next
 }

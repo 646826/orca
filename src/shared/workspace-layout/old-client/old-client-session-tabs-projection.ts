@@ -162,6 +162,9 @@ function projectTab(tab: LayoutTab, scope: Scope): RuntimeMobileSessionSnapshotT
       const row = reviewTabRow({ ...tab, kind: tab.kind }, scope)
       return row ? [row] : []
     }
+    // Legacy snapshots cannot represent aggregate identity; never impersonate a provider session.
+    case 'conversation':
+      return []
     // A simulator needs the desktop to draw it; the window lists none either.
     case 'simulator':
       return []

@@ -393,3 +393,34 @@ describe('applyWindowLayoutCommand', () => {
     expect(applyLayoutCommand).not.toHaveBeenCalled()
   })
 })
+
+it('carries conversation admission into special close and batched rename commits', async () => {
+  const beforeMutation = vi.fn()
+  const applyLayoutCommand = vi.fn<NonNullable<RuntimeStore['applyLayoutCommand']>>(async () => ({
+    ok: true as const,
+    result: { closed: ['tab'], refused: [] }
+  }))
+  const applyTabRenames = vi.fn<NonNullable<RuntimeStore['applyTabRenames']>>(async () => [])
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these branches only read the declared layout mutation ports.
+  const store = { applyLayoutCommand, applyTabRenames } as unknown as RuntimeStore
+  await applyWindowLayoutCommand(
+    store,
+    () => ['local'],
+    { type: 'closeTabs', workspace: 'wt', tabIds: ['tab'] },
+    undefined,
+    { beforeMutation }
+  )
+  expect(applyLayoutCommand.mock.calls[0]?.[2]).toEqual({ beforeMutation })
+  await applyWindowLayoutCommand(
+    store,
+    () => ['local'],
+    {
+      type: 'renameTabs',
+      kind: 'generated',
+      renames: [{ workspace: 'wt', tabId: 'tab', title: 'New' }]
+    },
+    undefined,
+    { beforeMutation }
+  )
+  expect(applyTabRenames.mock.calls[0]?.[1]).toBe(beforeMutation)
+})

@@ -10,7 +10,7 @@
 /** DB shape version, carried in `PRAGMA user_version`. Independent of the row body version
  *  (`JournalRow.v`): a newer build can change either alone. A newer version is opened read-only here
  *  and its chats are refused as a newer Orca's, so every change stays additive. */
-export const JOURNAL_DB_SCHEMA_VERSION = 4
+export const JOURNAL_DB_SCHEMA_VERSION = 13
 
 /** The first version a release wrote; 1 and 2 only ever came from development builds. */
 export const JOURNAL_DB_OLDEST_RELEASED_VERSION = 3

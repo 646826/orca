@@ -100,6 +100,11 @@ export class StructuredAgentSessionClientDelivery {
     return record ? adapter.atRestCommands?.read(record) : undefined
   }
 
+  /** Undefined means unavailable; an empty array is an authoritative catalog. */
+  readCommandsResult = async (sessionId: string) => ({
+    commands: await this.readCommandsSettled(sessionId)
+  })
+
   /** As `readCommands`, but a scan this read starts or finds running gets a short while to land,
    *  for a client that asks once per menu and never hears a later change. */
   async readCommandsSettled(sessionId: string) {

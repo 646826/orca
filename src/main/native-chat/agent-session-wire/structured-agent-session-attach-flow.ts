@@ -9,6 +9,7 @@ import {
   preSpawnFailureInWords
 } from './structured-agent-session-failed-create-refusal'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
+import type { CaptureConversationEvidenceLaunch } from './structured-agent-session-evidence-launch'
 // The host supplies owner authority; this flow reserves, proves, and publishes the session.
 
 import type {
@@ -62,6 +63,8 @@ import {
 export type AttachedOwner = 'acquired' | 'kept' | 'none'
 
 export type AttachFlowInput = {
+  captureConversationEvidenceLaunch?: CaptureConversationEvidenceLaunch
+  expectedConversationOperationKey?: string | null
   store: AgentSessionRecordStore
   adapter: StructuredAgentSessionAdapter
   /** What decides whether this build may start a record's agent at all (`agentDrivesSession`). */

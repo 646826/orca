@@ -84,7 +84,13 @@ export async function prepareDroppedPaths(
     prepared = await (signal ? rejectOnDropAbort(capture, signal) : capture)
     if (request.consumer === 'local-chat') {
       prepared = []
-      const handoff = storeCreatedCopies(batch, env, localChatAttachmentStore, signal)
+      const handoff = storeCreatedCopies(
+        batch,
+        env,
+        localChatAttachmentStore,
+        signal,
+        request.localAttachmentOwner
+      )
       await (signal ? rejectOnDropAbort(handoff, signal) : handoff)
       prepared = request.paths.map((path) => batch.completed.get(path)!)
     }
@@ -123,7 +129,8 @@ async function storeCreatedCopies(
   batch: DragTempCopyBatch,
   env: DragTempCopyEnvironment,
   getStore: DroppedPathPreparationDeps['localChatAttachmentStore'],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  owner?: { sessionId: string }
 ): Promise<void> {
   let storePromise:
     | ReturnType<NonNullable<DroppedPathPreparationDeps['localChatAttachmentStore']>>
@@ -145,9 +152,14 @@ async function storeCreatedCopies(
       signal?.throwIfAborted()
       if (store) {
         stored = buffered
-          ? await store.storeFile(basename(sourcePath), result.bytes)
+          ? await store.storeFile(basename(sourcePath), result.bytes, owner)
           : result.status === 'imported' && result.byteLength !== undefined
-            ? await store.importFreshFile(basename(sourcePath), result.destPath, result.byteLength)
+            ? await store.importFreshFile(
+                basename(sourcePath),
+                result.destPath,
+                result.byteLength,
+                owner
+              )
             : undefined
       }
     } catch {

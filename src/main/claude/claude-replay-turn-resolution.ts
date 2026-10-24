@@ -20,6 +20,7 @@ import { claudeDispatchContentKey } from './claude-structured-dispatch-content'
 export type ClaudeLateDispatchSettlement = (input: ClaudeLateDispatchOutcome) => void
 
 export type ClaudeReplayTurnOrigin = {
+  originCorrelation?: 'exact'
   requestedAt: number | null
   clientMessageId: string | null
 }
@@ -64,13 +65,13 @@ export function resolveClaudeReplayTurn(
     }
     const live = session.dispatchWaiters.find((candidate) => candidate.sentUuid === member)
     if (live) {
-      settleWaiter(session, live, member, onSettledLate)
+      settleWaiter(session, live, member, onSettledLate, true)
       continue
     }
     const late = session.retiredDispatchWaiters.find((candidate) => candidate.sentUuid === member)
     if (late) {
       forgetRetiredWaiter(session, late)
-      recoverLateIdentity(session, late, member, false, onSettledLate)
+      recoverLateIdentity(session, late, member, false, onSettledLate, true)
     }
   }
   if (userMessageUuid) {
@@ -79,9 +80,13 @@ export function resolveClaudeReplayTurn(
     )
     if (exact) {
       const foldReceipt = isUserReplay && claudeReplayIsFoldReceipt(session, exact, uuid)
-      settleWaiter(session, exact, uuid, onSettledLate)
+      settleWaiter(session, exact, uuid, onSettledLate, true)
       return isUserReplay && !foldReceipt
-        ? { requestedAt: exact.requestedAt, clientMessageId: exact.clientMessageId }
+        ? {
+            requestedAt: exact.requestedAt,
+            clientMessageId: exact.clientMessageId,
+            originCorrelation: 'exact'
+          }
         : null
     }
     const retired = session.retiredDispatchWaiters.find(
@@ -89,7 +94,7 @@ export function resolveClaudeReplayTurn(
     )
     if (retired) {
       forgetRetiredWaiter(session, retired)
-      recoverLateIdentity(session, retired, uuid, isUserReplay, onSettledLate)
+      recoverLateIdentity(session, retired, uuid, isUserReplay, onSettledLate, true)
       return null
     }
     return null
@@ -102,15 +107,19 @@ export function resolveClaudeReplayTurn(
   const exact = session.dispatchWaiters.find((candidate) => candidate.sentUuid === uuid)
   if (exact) {
     const foldReceipt = isUserReplay && claudeReplayIsFoldReceipt(session, exact, uuid)
-    settleWaiter(session, exact, uuid, onSettledLate)
+    settleWaiter(session, exact, uuid, onSettledLate, true)
     return isUserReplay && !foldReceipt
-      ? { requestedAt: exact.requestedAt, clientMessageId: exact.clientMessageId }
+      ? {
+          requestedAt: exact.requestedAt,
+          clientMessageId: exact.clientMessageId,
+          originCorrelation: 'exact'
+        }
       : null
   }
   const retired = session.retiredDispatchWaiters.find((candidate) => candidate.sentUuid === uuid)
   if (retired) {
     forgetRetiredWaiter(session, retired)
-    recoverLateIdentity(session, retired, uuid, isUserReplay, onSettledLate)
+    recoverLateIdentity(session, retired, uuid, isUserReplay, onSettledLate, true)
     return null
   }
 
@@ -181,18 +190,21 @@ function settleWaiter(
   session: ClaudeSession,
   waiter: ClaudeDispatchWaiter,
   uuid: string,
-  onSettledLate?: ClaudeLateDispatchSettlement
+  onSettledLate?: ClaudeLateDispatchSettlement,
+  exact = false
 ): void {
   const index = session.dispatchWaiters.indexOf(waiter)
   if (index !== -1) {
     session.dispatchWaiters.splice(index, 1)
   }
+  waiter.settledOriginCorrelation = exact ? 'exact' : undefined
   waiter.settledUuid = uuid
   waiter.resolve(uuid)
   // Admission already returned; this replay settles delivery.
   if (waiter.clientMessageId) {
     onSettledLate?.({
       clientMessageId: waiter.clientMessageId,
+      ...(exact ? { originCorrelation: 'exact' as const } : {}),
       providerIdentity: { provider: 'claude', sessionId: session.providerSessionId, uuid }
     })
   }
@@ -203,7 +215,8 @@ function recoverLateIdentity(
   waiter: ClaudeDispatchWaiter,
   uuid: string,
   isUserReplay: boolean,
-  onSettledLate?: ClaudeLateDispatchSettlement
+  onSettledLate?: ClaudeLateDispatchSettlement,
+  exact = false
 ): void {
   if (!isUserReplay && !waiter.acceptsResult) {
     return
@@ -212,6 +225,7 @@ function recoverLateIdentity(
   if (waiter.clientMessageId) {
     onSettledLate?.({
       clientMessageId: waiter.clientMessageId,
+      ...(exact ? { originCorrelation: 'exact' as const } : {}),
       providerIdentity: { provider: 'claude', sessionId: session.providerSessionId, uuid }
     })
   }

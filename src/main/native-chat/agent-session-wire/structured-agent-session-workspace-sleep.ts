@@ -26,7 +26,8 @@ type WorkspaceSleepVerdict = { stopped: true } | { stopped: false; fence: number
 export async function sleepStructuredAgentSessionWorkspace(
   host: WorkspaceSleepHost,
   workspaceId: string,
-  markAsleep = false
+  markAsleep = false,
+  assertMutationSupported?: (sessionId: string) => void
 ): Promise<AgentSessionWorkspaceSleepResult> {
   let records: ReturnType<StructuredAgentSessionHostDeps['store']['listRecords']>
   try {
@@ -46,6 +47,9 @@ export async function sleepStructuredAgentSessionWorkspace(
     ...host.tasks.pendingMembers(workspaceId, LOCAL_EXECUTION_HOST_ID)
   ])
   const sessionIds = [...candidates]
+  if (markAsleep) {
+    sessionIds.forEach((sessionId) => assertMutationSupported?.(sessionId))
+  }
   // Admits every close synchronously; `async` turns a synchronous throw into a rejection.
   const stops = await Promise.allSettled(
     sessionIds.map(async (sessionId) => {
@@ -65,7 +69,13 @@ export async function sleepStructuredAgentSessionWorkspace(
         ) {
           return null
         }
-        return settleWorkspaceSleepChat(host, sessionId, stop.stopped, markAsleep)
+        return settleWorkspaceSleepChat(
+          host,
+          sessionId,
+          stop.stopped,
+          markAsleep,
+          assertMutationSupported
+        )
       })
     })
   )
@@ -98,7 +108,8 @@ async function settleWorkspaceSleepChat(
   host: WorkspaceSleepHost,
   sessionId: string,
   stopped: boolean,
-  markAsleep: boolean
+  markAsleep: boolean,
+  assertMutationSupported?: (sessionId: string) => void
 ): Promise<WorkspaceSleepVerdict> {
   const current = host.deps.store.getRecord(sessionId)
   if (!current) {
@@ -126,6 +137,7 @@ async function settleWorkspaceSleepChat(
   const now = host.deps.now?.() ?? Date.now()
   // Judged inside the write, so the receipt and the mark cannot disagree.
   await host.deps.store.transitionHandoff(sessionId, (record) => {
+    assertMutationSupported?.(sessionId)
     marked = quiet(record)
     return marked ? { ...record, sleptAt: now, updatedAt: now } : record
   })

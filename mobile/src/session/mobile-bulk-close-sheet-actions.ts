@@ -20,6 +20,9 @@ type BulkCloseSheetDeps = {
 export function createBulkCloseSheetActions(deps: BulkCloseSheetDeps) {
   const selectClosable = (anchorTabId: string) =>
     selectBulkCloseTabs(deps.sessionTabsRef.current, anchorTabId).filter((candidate) => {
+      if (candidate.type === 'conversation') {
+        return false
+      }
       if (candidate.type !== 'markdown') {
         return true
       }
@@ -73,17 +76,20 @@ export function createCloseWithBulkActions(
   closeSessionTab: (tab: MobileSessionTab) => Promise<void>,
   bulkActions: ReturnType<typeof createBulkCloseSheetActions>
 ) {
-  return (target: MobileSessionTab | null, dismiss: () => void): ActionSheetAction[] => [
-    {
-      label: 'Close',
-      destructive: true,
-      onPress: () => {
-        dismiss()
-        if (target) {
-          void closeSessionTab(target)
-        }
-      }
-    },
-    ...bulkActions(target?.id, dismiss)
-  ]
+  return (target: MobileSessionTab | null, dismiss: () => void): ActionSheetAction[] =>
+    target?.type === 'conversation'
+      ? []
+      : [
+          {
+            label: 'Close',
+            destructive: true,
+            onPress: () => {
+              dismiss()
+              if (target) {
+                void closeSessionTab(target)
+              }
+            }
+          },
+          ...bulkActions(target?.id, dismiss)
+        ]
 }

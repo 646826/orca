@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import { AgentHookServer, _internals } from '../agent-hooks/server'
@@ -22,16 +26,19 @@ vi.mock('../telemetry/cohort-classifier', () => ({ getCohortAtEmit: vi.fn() }))
 
 describe('foreground commands in the background-task channel', () => {
   let root: string
+  let admission: ProfileStateRuntimeAdmission
   let server: AgentHookServer
 
   beforeEach(async () => {
     _internals.resetCachesForTests()
     root = await mkdtemp(join(tmpdir(), 'orca-foreground-command-strip-'))
+    admission = acquireProfileStateRuntimeAdmission(root)
     server = new AgentHookServer()
   })
 
   afterEach(async () => {
     await stopStructuredAgentSessionRuntime()
+    admission.release()
     await rm(root, { recursive: true, force: true })
   })
 

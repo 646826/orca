@@ -40,9 +40,21 @@ export async function runSettledAgentSessionMutation<TValue>(input: {
           })
       )
     : undefined
-  const context = receipt ? { ...input.context, operationReceipt: receipt } : input.context
+  const context = receipt
+    ? {
+        ...input.context,
+        operationReceipt: {
+          ...receipt,
+          write: (...args: Parameters<JournalOperationReceipt['write']>) => {
+            input.context.assertMutationSupported?.()
+            receipt.write(...args)
+          }
+        }
+      }
+    : input.context
   let outcome: TurnOutcome<TValue> | undefined
   try {
+    context.assertMutationSupported?.()
     const ran = await input.plan.run(context)
     if (receipt?.isCommitted() && !ran.ok) {
       // The row says accepted, so a refusal past it (a fold that failed after COMMIT) is a fault.

@@ -54,7 +54,9 @@ async function turnEndRig() {
   }
   const settledIds = () => settlements.map(({ clientMessageId }) => clientMessageId)
   const categoryOf = (settlement: LateSettlement | undefined) =>
-    settlement && 'state' in settlement ? classifyDispatchRejection(settlement).category : null
+    settlement && 'state' in settlement && settlement.state === 'rejected'
+      ? classifyDispatchRejection(settlement).category
+      : null
   return {
     codex,
     turns,
@@ -149,6 +151,7 @@ describe('a Codex send its turn ended without echoing', () => {
     expect(rig.settlements).toEqual([
       expect.objectContaining({
         clientMessageId: 'client-1',
+        originCorrelation: 'exact',
         providerIdentity: expect.objectContaining({ turnId: 'turn-1' })
       })
     ])
@@ -165,6 +168,7 @@ describe('a Codex send its turn ended without echoing', () => {
       {
         sessionId: 'session-1',
         clientMessageId: 'client-1',
+        originCorrelation: 'exact',
         providerIdentity: {
           provider: 'codex',
           threadId: CODEX_TEST_THREAD_ID,
@@ -275,6 +279,7 @@ describe('a Codex send its turn ended without echoing', () => {
     expect(rig.settlements).toEqual([
       expect.objectContaining({
         clientMessageId: 'client-1',
+        originCorrelation: 'exact',
         providerIdentity: expect.objectContaining({ turnId: 'turn-9' })
       })
     ])

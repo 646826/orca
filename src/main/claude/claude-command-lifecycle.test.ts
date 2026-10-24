@@ -103,7 +103,8 @@ async function replayCapture(
   } = {}
 ) {
   const capture = loadCapture(name)
-  const settlements: Settlement[] = []
+  const settlements: Exclude<Settlement, { state: 'origin-correlated' }>[] = []
+  const correlations: Extract<Settlement, { state: 'origin-correlated' }>[] = []
   const turnStates = new Map<string, string>()
   const claude = fakeClaude({ initProof: 'none', replayUuid: null })
   const adapter = new ClaudeStructuredSessionAdapter({
@@ -121,7 +122,13 @@ async function replayCapture(
     readProcessStartTime: async () => 1,
     now: () => 1_700_000_200_000,
     persistHandle: async () => {},
-    onDispatchSettledLate: (settlement) => settlements.push(settlement)
+    onDispatchSettledLate: (settlement) => {
+      if ('state' in settlement && settlement.state === 'origin-correlated') {
+        correlations.push(settlement)
+      } else {
+        settlements.push(settlement)
+      }
+    }
   })
   await adapter.acquire({
     identity: identityFor(),
@@ -237,7 +244,16 @@ async function replayCapture(
     settlements
       .filter((settlement) => settlement.clientMessageId === clientMessageId)
       .map(({ sessionId: _sessionId, clientMessageId: _id, ...outcome }) => outcome)
-  return { settlementsFor, turnStates, liveUuid, connection, adapter }
+  for (const correlation of correlations) {
+    expect(correlation).toMatchObject({
+      state: 'origin-correlated',
+      sessionId: 'session-1',
+      fence: 7,
+      turnIdentity: { provider: 'legacy', agent: 'claude', sessionId: PROVIDER_SESSION_ID }
+    })
+    expect(correlation.turnIdentity).not.toHaveProperty('providerIdentity')
+  }
+  return { settlementsFor, correlations, turnStates, liveUuid, connection, adapter }
 }
 
 const WITHDRAWN = {
@@ -248,7 +264,10 @@ const WITHDRAWN = {
 }
 
 function acceptedAs(uuid: string) {
-  return { providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid } }
+  return {
+    originCorrelation: 'exact',
+    providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid }
+  }
 }
 
 function stopWithInterruptAnswer(answer: 'recorded' | 'lost') {
@@ -275,6 +294,18 @@ describe('a Stop whose interrupt cancelled a queued follow-up (cancel_queued)', 
       expect(replay.connection.calls.filter((call) => call.subtype === 'interrupt')).toEqual([
         { subtype: 'interrupt', params: { cancelQueued: true } }
       ])
+      expect(replay.correlations).toContainEqual({
+        state: 'origin-correlated',
+        sessionId: 'session-1',
+        clientMessageId: 'client-A',
+        fence: 7,
+        turnIdentity: {
+          provider: 'legacy',
+          agent: 'claude',
+          sessionId: PROVIDER_SESSION_ID,
+          recordId: `turn-lifecycle:${replay.liveUuid('client-A')}`
+        }
+      })
       expect(replay.settlementsFor('client-B')).toEqual([WITHDRAWN])
       expect(replay.settlementsFor('client-A')).toEqual([acceptedAs(replay.liveUuid('client-A'))])
     }

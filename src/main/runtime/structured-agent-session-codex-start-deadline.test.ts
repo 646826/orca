@@ -5,6 +5,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { codexScriptedChild } from '../codex/codex-scripted-child.test-fixture'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import {
@@ -28,6 +32,8 @@ vi.mock('../observability/agent-session-instrumentation', async (importOriginal)
 }))
 
 let root: string | undefined
+
+let admission: ProfileStateRuntimeAdmission | undefined
 const caller = { callerKey: 'codex-start-deadline-test' }
 let operation = 0
 
@@ -43,6 +49,8 @@ beforeEach(() => {
 afterEach(async () => {
   vi.useRealTimers()
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (root) {
     await rm(root, { recursive: true, force: true })
   }
@@ -63,6 +71,7 @@ function envelope(method: string, fence: number, fields: Record<string, unknown>
 
 async function chatHoldingAMessage(child: ScriptedAgentChild) {
   root = await mkdtemp(join(tmpdir(), 'orca-codex-start-deadline-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   const host = await ensureStructuredAgentSessionHost({
     logger: createStructuredAgentSessionLogger(),
     stateDirectory: root,

@@ -124,6 +124,7 @@ export abstract class OrcaRuntimeWithPerformMobileSessionPtyRecordsRefresh exten
     tabId: string,
     leafId?: string,
     opts: {
+      assertAgentSessionMutation?: (sessionId: string) => void
       notifyClients?: boolean
       clientNavigationId?: string
       navigation?: RuntimeNavigationTarget
@@ -159,6 +160,9 @@ export abstract class OrcaRuntimeWithPerformMobileSessionPtyRecordsRefresh exten
       throw new Error('tab_not_found')
     }
 
+    if (tab.type === 'agent-session') {
+      opts.assertAgentSessionMutation?.(tab.sessionId)
+    }
     if (tab.type === 'terminal') {
       const publicTab = this.toMobileSessionTabsResult(snapshot!).tabs.find(
         (candidate) => candidate.type === 'terminal' && candidate.id === tab.id

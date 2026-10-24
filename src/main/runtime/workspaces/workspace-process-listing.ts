@@ -32,6 +32,7 @@ import {
 } from '../../native-chat/agent-session-wire/structured-agent-session-logger'
 import { openAgentSessionRecordStoreOnce } from '../agent-session-record-store-slot'
 import type { AgentSessionRecordStore } from '../agent-session-record-store'
+import type { AgentLaunchLedger } from '../agent-launch-ledger'
 import { maybeAutoRenameWorkspaceOnFirstStructuredTurn } from '../../agent-hooks/first-work-structured-session-rename'
 import { firstWorkRenameDeps } from '../../agent-hooks/first-work-rename-runtime'
 import { createStructuredChatNamingHandler } from '../../native-chat/structured-chat-naming'
@@ -221,6 +222,15 @@ export abstract class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithWorktr
       logger: neverThrowingStructuredAgentSessionLogger(createStructuredAgentSessionLogger())
     })
     return store
+  }
+
+  async openAgentLaunchLedger(): Promise<AgentLaunchLedger> {
+    const opened = await openAgentSessionRecordStoreOnce({
+      stateDirectory: getProfileUserDataPath(),
+      hostId: LOCAL_EXECUTION_HOST_ID,
+      logger: neverThrowingStructuredAgentSessionLogger(createStructuredAgentSessionLogger())
+    })
+    return opened.launchLedger
   }
 
   /**

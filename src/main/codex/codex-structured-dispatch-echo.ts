@@ -241,12 +241,16 @@ export function createCodexDispatchEchoes(onHeldChange?: () => void): CodexDispa
 export function readCodexDispatchEcho(
   item: { type: string; id: string } & Record<string, unknown>,
   identity: AgentJournalItemIdentity
-): { clientMessageId: string; providerIdentity: AgentJournalItemIdentity } | null {
+): {
+  clientMessageId: string
+  providerIdentity: AgentJournalItemIdentity
+  originCorrelation: 'exact'
+} | null {
   if (item.type !== 'userMessage' || identity.provider !== 'codex') {
     return null
   }
   const clientMessageId = item.clientId
   return typeof clientMessageId === 'string' && clientMessageId.length > 0
-    ? { clientMessageId, providerIdentity: identity }
+    ? { clientMessageId, providerIdentity: identity, originCorrelation: 'exact' }
     : null
 }

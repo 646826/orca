@@ -124,7 +124,8 @@ export abstract class OrcaRuntimeWithBuildHeadlessMobileSessionBrowserTabs exten
   protected async closeTerminalSurface(
     worktreeId: string,
     target: TerminalSurfaceCloseTarget,
-    options: TerminalSurfaceCloseOptions = {}
+    options: TerminalSurfaceCloseOptions = {},
+    beforeMutation?: () => void
   ): Promise<string[]> {
     const store = this.store
     if (!store?.getWorkspaceSession || !store.setWorkspaceSession || !store.runDurableMutation) {
@@ -140,29 +141,34 @@ export abstract class OrcaRuntimeWithBuildHeadlessMobileSessionBrowserTabs exten
     const hostIds = () => this.getWorkspaceSessionHostIdsForTab(worktreeId, target.tabId)
     const fenced = acknowledgeTabRetirement !== null
     try {
-      refusal = await store.runDurableMutation(
-        closeLeafOrTab({
+      const commit = closeLeafOrTab({
+        worktreeId,
+        target,
+        options,
+        ...captureTerminalCloseRequest(
           worktreeId,
           target,
-          options,
-          ...captureTerminalCloseRequest(
-            worktreeId,
-            target,
-            hostIds(),
-            // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The existing guard requires this getter; preserve late-bound store access.
-            store as Parameters<typeof captureTerminalCloseRequest>[3],
-            fenced
-          ),
-          ownerMatches: () => !acknowledgeTabRetirement || acknowledgeTabRetirement().matches,
-          hostIds,
-          getSession: (hostId) => store.getWorkspaceSession!(hostId),
-          setSession: (session, hostId) => store.setWorkspaceSession!(session, hostId),
-          onClosed: (closedPtyIds) => {
-            ptyIdsToKill = closedPtyIds
-          }
-        })
-      )
+          hostIds(),
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The existing guard requires this getter; preserve late-bound store access.
+          store as Parameters<typeof captureTerminalCloseRequest>[3],
+          fenced
+        ),
+        ownerMatches: () => !acknowledgeTabRetirement || acknowledgeTabRetirement().matches,
+        hostIds,
+        getSession: (hostId) => store.getWorkspaceSession!(hostId),
+        setSession: (session, hostId) => store.setWorkspaceSession!(session, hostId),
+        onClosed: (closedPtyIds) => {
+          ptyIdsToKill = closedPtyIds
+        }
+      })
+      refusal = await store.runDurableMutation(() => {
+        beforeMutation?.()
+        return commit()
+      })
     } catch (error) {
+      if (beforeMutation) {
+        throw error
+      }
       console.error('[runtime] failed to persist terminal close:', error)
     }
     if (refusal) {
@@ -172,9 +178,12 @@ export abstract class OrcaRuntimeWithBuildHeadlessMobileSessionBrowserTabs exten
   }
 
   /** The desktop renderer's close intent: it already guarded, removed and killed; this only reports. */
-  async closeTerminalSurfaceFromRenderer({ worktreeId, target, reason }: RendererTerminalClose) {
+  async closeTerminalSurfaceFromRenderer(
+    { worktreeId, target, reason }: RendererTerminalClose,
+    beforeMutation?: () => void
+  ) {
     const options = { allowMissing: true, force: true, closedByLayoutOwner: true, reason }
-    await this.closeTerminalSurface(worktreeId, target, options)
+    await this.closeTerminalSurface(worktreeId, target, options, beforeMutation)
   }
 
   /** Resolves a close main started against the copy of the tab's panes its layout owner holds. */

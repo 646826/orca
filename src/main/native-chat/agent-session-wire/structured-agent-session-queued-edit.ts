@@ -1,3 +1,4 @@
+import { agentSessionRefusalError } from '../../../shared/agent-session-wire-refusals'
 // Editing a queued card in place: Save is a compare-and-set on the card's body fingerprint, and
 // an edit lease keeps automatic delivery from sending the card while someone types. The card keeps
 // its id, position and sender; its text changes, and its images too when Save names them.
@@ -92,7 +93,19 @@ export function holdQueuedStructuredAgentMessageEdit(
       }
       return { status: 'released' }
     }
+    const assertSupported = () => {
+      if (
+        caller.conversationMutationSupported === false &&
+        context.deps.store.conversations.membership(sessionId)
+      ) {
+        throw agentSessionRefusalError('structured_agent_session_unsupported', {
+          reason: 'clientCapabilityMissing'
+        })
+      }
+    }
+    assertSupported()
     const session = await context.openConversation(sessionId)
+    assertSupported()
     if (!session) {
       return { status: 'gone' }
     }

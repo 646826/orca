@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import {
   hostTestAttachParams,
@@ -17,11 +21,15 @@ import {
 } from './structured-agent-session-runtime'
 
 let directory: string | undefined
+
+let admission: ProfileStateRuntimeAdmission | undefined
 let operations = 0
 const operationId = () => `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (directory) {
     await rm(directory, { recursive: true, force: true })
     directory = undefined
@@ -30,6 +38,7 @@ afterEach(async () => {
 
 async function setup() {
   directory = await mkdtemp(join(tmpdir(), 'orca-pi-startup-'))
+  admission = acquireProfileStateRuntimeAdmission(directory)
   const root = directory
   const script = piScriptedChild()
   const host = await ensureStructuredAgentSessionHost({

@@ -1,9 +1,11 @@
+import { ConversationScratchClient } from '../native-chat/conversations/conversation-scratch-client'
 // Opening the chat journal database for the host install.
 
 import { JournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database'
 import { journalOpenRefusalError } from '../native-chat/agent-session-journal/journal-open-failure'
 import { recordStructuredAgentSessionHostInstallRefusal } from './structured-agent-session-host-refusal'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
+import { withProfileStateRuntimeMigration } from '../persistence/profile-state/profile-state-access'
 
 // Every chat request retries a failed open, so each distinct failure is logged once, with its stack.
 let lastLoggedOpenFailure: string | null = null
@@ -30,7 +32,11 @@ export function openStructuredAgentSessionJournalDatabase(args: {
   logger: StructuredAgentSessionLogger
 }): JournalHostDatabase {
   try {
-    const opened = JournalHostDatabase.open(args.stateDirectory)
+    ConversationScratchClient.assertOwnerReleased(args.stateDirectory)
+    const opened = JournalHostDatabase.open(args.stateDirectory, (run) =>
+      withProfileStateRuntimeMigration(args.stateDirectory, run)
+    )
+    ConversationScratchClient.reopenAdmission(args.stateDirectory)
     recordStructuredAgentSessionHostInstallRefusal(null)
     lastLoggedOpenFailure = null
     return opened

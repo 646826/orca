@@ -1,3 +1,7 @@
+import {
+  isConversationActivationResult,
+  type ConversationActivationResult
+} from './conversation-record'
 import type {
   AgentSessionAnyRefusalDetails,
   AgentSessionRefusalDetailsByCode
@@ -43,6 +47,7 @@ export type AgentSessionOperationOutcome =
        */
       sessionId: string
       conversationCommand?: AgentSessionConversationCommandResult
+      conversationActivation?: ConversationActivationResult
       rewind?: AgentSessionRewindResult
       /**
        * The full `agent.launch` answer. Recorded whole rather than rebuilt, because the preferred
@@ -310,6 +315,8 @@ export function isAgentSessionOperationRow(value: unknown): value is AgentSessio
       // `launch` is intentionally absent from this check; see the field's own note above.
       (outcome.status === 'succeeded' &&
         typeof outcome.sessionId === 'string' &&
+        (outcome.conversationActivation === undefined ||
+          isConversationActivationResult(outcome.conversationActivation)) &&
         (outcome.rewind === undefined || isAgentSessionRewindResult(outcome.rewind)) &&
         (outcome.conversationCommand === undefined ||
           isAgentSessionConversationCommandResult(outcome.conversationCommand))) ||

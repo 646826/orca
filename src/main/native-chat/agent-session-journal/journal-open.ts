@@ -1,8 +1,7 @@
 // Loading a journal: the session projection names the live epoch, and that
 // epoch's rows are folded through the reducer in sequence order.
 //
-// There is no snapshot to anchor to and no superseded-epoch rows to drop — a
-// roll deletes them in the same transaction that publishes the new epoch. A row
+// Pinned historical epochs remain stored but are not part of the live projection. A row
 // this build cannot parse, a gap, or a first row that is not the epoch's is
 // damage, and a row a newer Orca wrote is one this build cannot place: the load
 // names either and the open fails on it. Nothing is deleted.
@@ -55,12 +54,22 @@ export function replayJournal(db: Database.Database, sessionId: string): Journal
 }
 
 /** The same fold, fed a row at a time, for a caller that yields between batches of rows. */
-export function startJournalRowFold(input: { sessionId: string; epoch: string }): {
+export function startJournalRowFold(
+  input: { sessionId: string; epoch: string },
+  items?: JournalReducerState['items'],
+  replayQueries?: JournalReducerState['replayQueries']
+): {
   /** False once the fold has stopped: the rest of the rows are not read. */
   add: (entry: { seq: number; rowJson: string; ts?: number }) => boolean
   finish: () => JournalLoad
 } {
   const state = createJournalReducerState(input.sessionId, input.epoch)
+  if (items) {
+    state.items = items
+  }
+  if (replayQueries) {
+    state.replayQueries = replayQueries
+  }
   let expectedSequence = FIRST_JOURNAL_SEQUENCE
   let damage: JournalDamage | null = null
   let anchored = false

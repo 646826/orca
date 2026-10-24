@@ -1,3 +1,4 @@
+import { assertConversationUploadOwner } from './agent-session-upload-provenance'
 // Which chats hold each stored attachment. A message claims the uploads it references in the same
 // host transaction that makes it durable, and the sweep may delete only an upload nobody claims:
 // both are synchronous statements on the host's one journal connection, so exactly one wins.
@@ -115,6 +116,11 @@ export function claimAgentSessionAttachmentsInTransaction(
   if (required.some((uploadId) => isBeingSwept(db, uploadId) || !uploadIsStored(root, uploadId))) {
     throw new AgentSessionAttachmentExpiredError()
   }
+  if (claim.required) {
+    for (const uploadId of uploadIds) {
+      assertConversationUploadOwner(db, { uploadId, targetSessionId: claim.sessionId })
+    }
+  }
   insertClaims(db, required, claim.sessionId, claim.now)
   const bestEffort = [...uploadIds].filter((id) => !required.includes(id))
   if (bestEffort.length === 0) {
@@ -145,9 +151,11 @@ export function markUnclaimedUploadForSweep(
     .prepare(
       `INSERT OR IGNORE INTO agent_session_attachment_sweeps (upload_id, started_at)
        SELECT ?, ? WHERE NOT EXISTS
-         (SELECT 1 FROM agent_session_attachment_claims WHERE upload_id = ?)`
+         (SELECT 1 FROM agent_session_attachment_claims WHERE upload_id = ?)
+       AND NOT EXISTS
+         (SELECT 1 FROM conversation_attachment_claims WHERE upload_id = ?)`
     )
-    .run(uploadId, now, uploadId)
+    .run(uploadId, now, uploadId, uploadId)
   return Number(result.changes) > 0
 }
 

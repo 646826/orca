@@ -103,6 +103,9 @@ export function useMobileSessionCloseActions(scope: MobileSessionContentCreateAc
   }
 
   async function handleCloseSessionTab(tab: MobileSessionTab) {
+    if (tab.type === 'conversation') {
+      return
+    }
     if (!client) {
       return
     }

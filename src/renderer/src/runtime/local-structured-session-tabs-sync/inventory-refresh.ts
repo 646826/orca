@@ -91,15 +91,18 @@ export function refreshLocalStructuredSessionTabs(
  *  removed a chat before the host answered its close: nothing republishes an unchanged list. */
 export async function refreshLocalStructuredSessionWorktreeTabs(
   worktreeId: string,
-  options: { reacceptCurrentVersion?: boolean } = {}
+  options: { reacceptCurrentVersion?: boolean; assertCurrent?: () => void } = {}
 ): Promise<RuntimeMobileSessionTabsResult | null> {
   // Structured chat can be switched off mid-call, which wipes the mirror; a late answer must not re-seed it.
   const expectedGeneration = localStructuredSessionGeneration()
+  options.assertCurrent?.()
   const snapshot = await callRuntimeRpc<RuntimeMobileSessionTabsResult>(
     { kind: 'local' },
     'session.tabs.list',
-    { worktree: toRuntimeWorktreeSelector(worktreeId) }
+    { worktree: toRuntimeWorktreeSelector(worktreeId) },
+    { beforeSend: options.assertCurrent }
   )
+  options.assertCurrent?.()
   if (!isCurrentLocalStructuredSessionGeneration(expectedGeneration)) {
     return null
   }

@@ -1,3 +1,12 @@
+import {
+  prepareClaudeConversationEvidence,
+  claudeEvidenceConnectionLaunch
+} from './claude-conversation-evidence-launch'
+import {
+  initializeClaudeConversationObservation,
+  observeClaudeConversationInitialization
+} from './claude-conversation-capabilities'
+import { emitClaudeOriginCorrelation } from './claude-structured-origin-correlation'
 import type {
   AgentSessionAcquisition,
   StructuredAgentSessionAcquireInput
@@ -10,11 +19,9 @@ import { claudeSessionStateEndsTurn } from './claude-session-state-turn-over'
 import { settleClaudeTurnEndWaiters } from './claude-request-end-wait'
 import {
   createClaudeInitProof,
-  readClaudeCapabilities,
   readClaudeFrameString,
   readClaudeInit
 } from './claude-structured-init-proof'
-import { claudeConfigDirEnvPatch } from './claude-config-dir-pin'
 import { claudeProcessIdentity } from './claude-structured-owner-identity'
 import { ClaudePromptRegistry } from './claude-structured-prompt-replies'
 import { adoptClaudeStructuredSpawnOptions } from './claude-structured-spawn-options'
@@ -94,7 +101,7 @@ export async function acquireClaudeSession({
     if (init) {
       initProof.resolve(init)
       if (liveSession) {
-        liveSession.capabilities = readClaudeCapabilities(liveSession.capabilities, init.message)
+        observeClaudeConversationInitialization(liveSession, init.message)
       }
     }
     observedLeafUuid = readClaudeTranscriptEntryUuid(message) ?? observedLeafUuid
@@ -114,6 +121,7 @@ export async function acquireClaudeSession({
     const turnOrigin = liveSession
       ? resolveClaudeReplayTurn(liveSession, message, (settlement) => settlements.push(settlement))
       : null
+    emitClaudeOriginCorrelation(sessionId, liveSession, turnOrigin, message, deps)
     const startsTurn = turnOrigin !== null
     // Use host time for turn endpoints; provider timestamps may use a different clock.
     const observedAt =
@@ -178,47 +186,32 @@ export async function acquireClaudeSession({
       previous,
       attempt
     })
+    const evidence = prepareClaudeConversationEvidence(input, launch)
     expectedProviderSessionId = launch.providerSessionId
     attempt.account = launch.account
     observedLeafUuid = launch.resumeLeafUuid
     const open = deps.openConnection ?? openClaudeStreamJsonConnection
     const connection = await withAgentSessionCreatePhase('spawn', input.recordPhase, () =>
-      open(
-        {
-          pathToClaudeCodeExecutable: launch.pathToClaudeCodeExecutable,
-          options: launch.options,
-          cwd: launch.cwd,
-          env: {
-            ...launch.env,
-            // The saved account directory must override a conflicting environment overlay.
-            ...claudeConfigDirEnvPatch(
-              launch.claudeConfigDir,
-              launch.env ? { env: launch.env } : {}
-            )
-          },
-          ...(launch.envToDelete ? { envToDelete: launch.envToDelete } : {})
+      open(claudeEvidenceConnectionLaunch(launch, evidence), {
+        onMessage,
+        canUseTool,
+        onUserDialog,
+        onFault: (error) => {
+          childEnded ??= error
+          initProof.reject(error)
         },
-        {
-          onMessage,
-          canUseTool,
-          onUserDialog,
-          onFault: (error) => {
-            childEnded ??= error
-            initProof.reject(error)
-          },
-          onExit: (error, exit) => {
-            if (exit?.expected) {
-              callbacks.finishClose(sessionId, attempt)
-              return
-            }
-            // Mark in place because the fault report may retain this error object.
-            withObservedProviderExit(error)
-            childEnded ??= error
-            initProof.reject(error)
-            callbacks.handleExit(sessionId, attempt, error)
+        onExit: (error, exit) => {
+          if (exit?.expected) {
+            callbacks.finishClose(sessionId, attempt)
+            return
           }
+          // Mark in place because the fault report may retain this error object.
+          withObservedProviderExit(error)
+          childEnded ??= error
+          initProof.reject(error)
+          callbacks.handleExit(sessionId, attempt, error)
         }
-      )
+      })
     )
     attempt.connection = connection
     unbindReadingControl = bindClaudeConnectionJournalControls(
@@ -270,6 +263,10 @@ export async function acquireClaudeSession({
       observedAt: deps.now?.() ?? Date.now()
     })
     const session = publication.session
+    if (evidence) {
+      session.conversationEvidence = evidence
+    }
+    initializeClaudeConversationObservation(session, launch)
     liveSession = session
     adoptClaudeStructuredSpawnOptions(session, launch.savedOptions)
     acquisitions.deleteIfCurrent(sessionId, attempt)

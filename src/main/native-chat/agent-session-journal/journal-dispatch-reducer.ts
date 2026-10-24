@@ -74,7 +74,8 @@ export function applyJournalDispatchRow(
     clientMessageId: row.clientMessageId,
     providerItemId: row.providerItemId,
     cursor: { epoch: row.epoch, sequence: row.seq },
-    acceptedAt: row.ts
+    acceptedAt: row.ts,
+    ...(row.originCorrelation === 'exact' ? { originCorrelation: 'exact' as const } : {})
   })
 }
 

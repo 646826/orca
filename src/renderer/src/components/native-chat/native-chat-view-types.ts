@@ -1,3 +1,7 @@
+import type { ReactNode } from 'react'
+import type { NativeChatLiveSession } from './native-chat-live-session-contract'
+import type { NativeChatAgentSwitchPickerProps } from './NativeChatAgentSwitchPicker'
+import type { NativeChatComposerNotice } from './native-chat-composer-notice'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
@@ -30,6 +34,15 @@ export type NativeChatBridgeViewProps = {
 }
 
 export type NativeChatStructuredViewProps = {
+  conversationView?: {
+    conversationId: string
+    contextGeneration: number
+    composerScopeKey: string
+    display: NativeChatLiveSession
+    controls?: ReactNode
+    agentSwitch?: NativeChatAgentSwitchPickerProps
+    notices: readonly NativeChatComposerNotice[]
+  }
   mode: 'structured'
   tabId: string
   groupId?: string

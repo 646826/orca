@@ -1,3 +1,4 @@
+import { requireConversationMutationHost } from './conversation-gate'
 import {
   AGENT_SESSION_ACCEPTED_SEND_RUNTIME_CAPABILITY,
   AGENT_SESSION_PENDING_SEND_RESULT_RUNTIME_CAPABILITY
@@ -6,7 +7,7 @@ import { agentSessionSendSubmission } from '../../../../shared/agent-session-wir
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 import { STRUCTURED_AGENT_SESSION_START_WAIT_MS } from '../../../native-chat/agent-session-wire/structured-agent-session-send-settlement'
 import type { RpcContext } from '../core'
-import { requireStructuredSessionHost, structuredCallerFor } from './structured-agent-session-gate'
+import { structuredCallerFor } from './structured-agent-session-gate'
 import { readsQueuedImageCards } from './structured-agent-session-queued-image-capability'
 
 /**
@@ -20,7 +21,7 @@ export async function sendStructuredAgentSessionForClient(
   params: Parameters<StructuredAgentSessionHost['send']>[1],
   context: RpcContext
 ) {
-  const host = requireStructuredSessionHost(context, params.envelope.sessionId)
+  const host = requireConversationMutationHost(context, params.envelope.sessionId)
   // Person provenance lets undelivered text recover as an ordinary queued card.
   const result = await host.send(structuredCallerFor(context), {
     ...params,

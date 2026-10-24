@@ -21,12 +21,10 @@ import {
   AGENT_LAUNCH_TAB_CLOSED_CLIENT_CAPABILITY
 } from '../../../../shared/agent-launch-runtime-capability'
 import { AGENT_LAUNCH_TAB_CLOSED_CODE } from '../../../../shared/agent-launch-tab-closed'
-import { isAgentLaunchResult, type AgentLaunchResult } from '../../../../shared/agent-launch-intent'
-import type {
-  AgentSessionOperationOutcome,
-  AgentSessionOperationRefusalCode
-} from '../../../../shared/agent-session-operation-ledger'
-import { resolveAgentSessionReplayOutcome } from '../../../native-chat/agent-session-wire/structured-agent-session-replay-outcome'
+import type { AgentLaunchResult } from '../../../../shared/agent-launch-intent'
+import type { AgentSessionOperationRefusalCode } from '../../../../shared/agent-session-operation-ledger'
+import type { AgentLaunchRefusal } from '../../agent-launch-ledger'
+export type { AgentLaunchRefusal } from '../../agent-launch-ledger'
 import type { RpcContext } from '../core'
 import { rpcCallerOperationKey } from '../rpc-caller-identity'
 import { agentLaunchFailureMessage } from './agent-launch-failure-code'
@@ -50,7 +48,6 @@ export function agentLaunchOperationCallerKey(context: Pick<RpcContext, 'caller'
  * answers pass through unchanged. `said` is the words a failed launch was refused with, for its
  * replay to repeat.
  */
-export type AgentLaunchRefusal = { code: string; message: string; said?: string }
 
 export type AgentLaunchAdmission =
   /** This caller owns the operation. It alone runs the effect, and it must settle the row. */
@@ -69,45 +66,6 @@ export type AgentLaunchAdmission =
   /** Already run under this id; hand back what it produced rather than producing it again. */
   | { decision: 'replay'; result: AgentLaunchResult }
   | { decision: 'refuse'; refusal: AgentLaunchRefusal }
-
-/** A recorded row read back as an answer. `pending` is the one state with no answer yet — nobody
- *  has claimed it — so it reports `rerun`, and the caller goes on to try the claim. */
-function answerFromRecordedRow(
-  operationId: string,
-  outcome: AgentSessionOperationOutcome
-): AgentLaunchAdmission | null {
-  if (outcome.status === 'failed') {
-    // Replayed verbatim rather than narrowed to the `agentSession.*` vocabulary. A launch fails
-    // with its own codes — `worktree_not_found` and the reuse-terminal guards — none of which is on
-    // that closed list, so narrowing would answer every one of them with
-    // `agent_session_operation_invalid`: the ledger's "your id is malformed" signal. The original
-    // code says this launch definitively failed; the same id replays that answer, while a deliberate
-    // new attempt must use a fresh id.
-    return {
-      decision: 'refuse',
-      refusal: {
-        code: outcome.code,
-        message:
-          outcome.message ?? `Launch operation ${operationId} already failed: ${outcome.code}.`,
-        ...(outcome.message ? { said: outcome.message } : {})
-      }
-    }
-  }
-  const replay = resolveAgentSessionReplayOutcome<AgentLaunchResult>({
-    operationId,
-    outcome,
-    // Narrowed here rather than in the row validator: a launch payload this build cannot read must
-    // cost this one replay, not the whole store. `isAgentSessionOperationRow` says why.
-    reconstruct: () =>
-      outcome.status === 'succeeded' && isAgentLaunchResult(outcome.launch) ? outcome.launch : null
-  })
-  if (replay.decision === 'rerun') {
-    return null
-  }
-  return replay.decision === 'replay'
-    ? { decision: 'replay', result: replay.value }
-    : { decision: 'refuse', refusal: replay.refusal }
-}
 
 /** A launch whose tab the user closed answers with its own word only to a caller that reads it. */
 export function readsAgentLaunchTabClosed(
@@ -206,66 +164,19 @@ export async function admitAgentLaunchOperation(
     return refusal(operationId, 'agent_session_operation_invalid', 'is not a durable operation id')
   }
   const callerKey = agentLaunchOperationCallerKey(context)
-  // The ledger alone: admitting a terminal launch has no use for the chat host.
-  const store = await context.runtime.openAgentSessionRecordStore()
-  const { decision: admitted, claim } = await store.admitAndClaimOperation(
-    { callerKey, operationId, fingerprint, now },
-    // A fresh row, or a replayed one no one has answered yet, leaves the right to run open.
-    (decision) =>
-      decision.decision === 'admit' ||
-      (decision.decision === 'replay' &&
-        answerFromRecordedRow(operationId, decision.row.outcome) === null)
-  )
-  if (admitted.decision === 'refused') {
-    return refusal(operationId, admitted.code, `was refused: ${admitted.code}`)
+  const ledger = await context.runtime.openAgentLaunchLedger()
+  const admission = await ledger.admit({ callerKey, operationId, fingerprint, now })
+  if (admission.decision !== 'execute') {
+    return presentRecordedAnswer(context, operationId, admission)
   }
-  if (admitted.decision === 'replay') {
-    const answer = answerFromRecordedRow(operationId, admitted.row.outcome)
-    if (answer) {
-      return presentRecordedAnswer(context, operationId, answer)
-    }
-  }
-  // Unreachable with both steps in one transaction; answered as uncertain rather than run twice.
-  if (!claim || claim.claim === 'absent') {
-    return refusal(
-      operationId,
-      'agent_session_operation_unknown',
-      'has no claim; its outcome is unknown'
-    )
-  }
-  if (claim.claim === 'lost') {
-    // The handler joins same-process retries before admission. Reaching a claimed row here means
-    // this runtime did not start it, so treating it as restart uncertainty is the safe answer.
-    const answer = answerFromRecordedRow(operationId, claim.row.outcome)
-    return answer
-      ? presentRecordedAnswer(context, operationId, answer)
-      : refusal(operationId, 'agent_session_operation_unknown', 'is claimed but unsettled')
-  }
-  const succeeded = (result: AgentLaunchResult) =>
-    store.recordOperationOutcome({
-      callerKey,
-      operationId,
-      outcome: {
-        status: 'succeeded',
-        // A terminal surface has a handle, not a session id; `launch` carries whichever it is.
-        sessionId: result.outcome.kind === 'structured' ? result.outcome.sessionId : '',
-        launch: result
-      }
-    })
+  const succeeded = (result: AgentLaunchResult) => ledger.record({ callerKey, operationId, result })
   return {
-    decision: 'execute',
-    attachOperationId,
-    callerKey,
-    // The same row shape twice: a build that predates the first write reads either one.
+    ...admission,
     record: succeeded,
     settle: succeeded,
     fail: (code, cause) => {
       const message = agentLaunchFailureMessage(cause)
-      return store.recordOperationOutcome({
-        callerKey,
-        operationId,
-        outcome: { status: 'failed', code, ...(message ? { message } : {}) }
-      })
+      return ledger.fail({ callerKey, operationId, code, ...(message ? { message } : {}) })
     }
   }
 }

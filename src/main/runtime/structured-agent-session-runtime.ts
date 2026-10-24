@@ -10,16 +10,16 @@
 // A process whose journal will not open installs none and answers every
 // structured request with the refusal that says why.
 
+import { createRuntimeConversationPreparationFactory } from './structured-conversation-preparation-factory'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
-import { bindAtRestCommandContexts } from '../native-chat/agent-session-wire/at-rest-command-context'
+import { startRuntimeBackgroundWork } from './structured-conversation-runtime-contexts'
 import type { StructuredAgentSessionTransportOverrides } from './structured-agent-session-transport-overrides'
-import { existsSync } from 'node:fs'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import type { AgentSessionResumeTrigger } from '../../shared/agent-session-resume-marker'
 import type { StructuredAttentionMobileDelivery } from './structured-agent-session-mobile-attention'
 import {
   structuredAgentSessionTeardownTrigger,
-  tearDownRuntime,
+  tearDownRuntimeOwners,
   type InstalledRuntime
 } from './structured-agent-session-runtime-teardown'
 import { AgentSessionRecoveryCapsule } from './agent-session-recovery-capsule'
@@ -40,8 +40,6 @@ import {
   releaseAgentSessionRecordStore,
   type OpenedAgentSessionRecordStore
 } from './agent-session-record-store-slot'
-import { journalDatabasePath } from '../native-chat/agent-session-journal/journal-host-database'
-import { journalDatabaseHoldsAgentSessions } from '../native-chat/agent-session-journal/journal-database'
 import {
   createStructuredAgentSessionOwnerProbe,
   createStructuredAgentSessionOwnerProbes
@@ -52,7 +50,6 @@ import type { ClaudeStructuredAuthPolicy } from '../claude-accounts/claude-struc
 import type { StructuredAgentAdapterContext } from './structured-agent-runtime-registration-types'
 import { createStructuredAgentSessionLifecycleDelivery } from './structured-agent-session-lifecycle-delivery'
 import { createStructuredAgentSessionDispatchFollowUps } from './structured-agent-session-dispatch-followups'
-import { agentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import {
   neverThrowingStructuredAgentSessionLogger,
   type StructuredAgentSessionLogger
@@ -63,24 +60,8 @@ import {
 } from './structured-agent-model-catalog-wiring'
 import type { ClaudeCliFlagSupport } from '../claude/claude-cli-flag-support'
 import { migrateLegacyNativeChatVisualsFolders } from '../native-chat/native-chat-scratch-folder-migration'
-import { scheduleNativeChatVisualsSweep } from '../native-chat/native-chat-visuals-sweep'
 
-/** Whether this profile holds a structured chat: a record or tab in the journal database. */
-export function hasPersistedStructuredAgentSessionStore(
-  stateDirectory: string,
-  fileExists: (path: string) => boolean = existsSync
-): boolean {
-  const databasePath = journalDatabasePath(stateDirectory)
-  if (!fileExists(databasePath)) {
-    return false
-  }
-  try {
-    return journalDatabaseHoldsAgentSessions(databasePath)
-  } catch {
-    // A database that cannot be read cannot say it is empty.
-    return true
-  }
-}
+export { hasPersistedStructuredAgentSessionStore } from './structured-agent-session-store-presence'
 
 export type StructuredAgentSessionRuntimeDeps = StructuredAgentSessionTransportOverrides & {
   /** Host state root. The record store and the journal database both hang off it. */
@@ -139,6 +120,7 @@ export type StructuredAgentSessionRuntimeDeps = StructuredAgentSessionTransportO
 }
 
 let installing: Promise<InstalledRuntime> | null = null
+let stopping: Promise<void> | null = null
 
 /** Thrown when the host is installed without a Claude auth policy resolver. */
 export const CLAUDE_STRUCTURED_AUTH_POLICY_REQUIRED =
@@ -163,6 +145,9 @@ const pendingTeardown = new Set<InstalledRuntime>()
 export function ensureStructuredAgentSessionHost(
   deps: StructuredAgentSessionRuntimeDeps
 ): Promise<StructuredAgentSessionHost> {
+  if (stopping) {
+    return Promise.reject(new Error('agent_session_record_store_stopping'))
+  }
   // A failed open must not poison the slot forever — the next call retries.
   installing ??= install(deps).catch((error) => {
     installing = null
@@ -188,44 +173,46 @@ export async function waitForStructuredAgentSessionRecovery(): Promise<void> {
  *  A teardown that fails is RETRIED by the next stop rather than forgotten: the
  *  host keeps every conversation it could not settle, and this is the only handle
  *  onto that host once the module slot is cleared. */
-export async function stopStructuredAgentSessionRuntime(options?: {
+export function stopStructuredAgentSessionRuntime(options?: {
   trigger?: AgentSessionResumeTrigger
 }): Promise<void> {
+  if (stopping) {
+    return stopping
+  }
+  const pending = Promise.withResolvers<void>()
+  stopping = pending.promise
+  void stopRuntime(options).then(
+    () => {
+      stopping = null
+      pending.resolve()
+    },
+    (error: unknown) => {
+      stopping = null
+      pending.reject(error)
+    }
+  )
+  return pending.promise
+}
+
+async function stopRuntime(options?: { trigger?: AgentSessionResumeTrigger }): Promise<void> {
   const trigger = options?.trigger ?? structuredAgentSessionTeardownTrigger()
   const pending = installing
+  const releasingRecordStore = releaseAgentSessionRecordStore()
+  void releasingRecordStore.catch(() => {})
   installing = null
   setStructuredAgentSessionHost(null)
   stopAgentSessionAttachments()
   const outstanding = [...pendingTeardown]
   pendingTeardown.clear()
   const installed = pending ? await pending.catch(() => null) : null
+  setStructuredAgentSessionHost(null)
+  stopAgentSessionAttachments()
   if (installed) {
     outstanding.push(installed)
   }
   // A store admission opened with no host built on it has no teardown to close its database.
-  const recordStore = await releaseAgentSessionRecordStore()
-  if (
-    recordStore &&
-    !outstanding.some((runtime) => runtime.journalDatabase === recordStore.journalDatabase)
-  ) {
-    recordStore.journalDatabase.close()
-  }
-  const failures: unknown[] = []
-  for (const runtime of outstanding) {
-    try {
-      await tearDownRuntime(runtime, trigger)
-    } catch (error) {
-      pendingTeardown.add(runtime)
-      failures.push(error)
-    }
-  }
-  await agentModelCatalogStore.flushPersistence()
-  if (failures.length === 1) {
-    throw failures[0]
-  }
-  if (failures.length > 1) {
-    throw new AggregateError(failures, 'structured agent-session runtime teardown failed')
-  }
+  const recordStore = await releasingRecordStore
+  await tearDownRuntimeOwners({ recordStore, outstanding, pendingTeardown, trigger })
 }
 
 async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<InstalledRuntime> {
@@ -266,8 +253,9 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
 
 async function installOnJournal(
   deps: StructuredAgentSessionRuntimeDeps,
-  { journalDatabase, store }: OpenedAgentSessionRecordStore
+  opened: OpenedAgentSessionRecordStore
 ): Promise<InstalledRuntime> {
+  const { journalDatabase, store } = opened
   const envResolvers = createStructuredAgentEnvironmentResolvers(deps)
   let host: StructuredAgentSessionHost | null = null
   const lifecycle = createStructuredAgentSessionLifecycleDelivery({
@@ -302,6 +290,10 @@ async function installOnJournal(
     await Promise.all(registrations.map((registration) => registration.adapter.closeAll()))
   })
   host = new StructuredAgentSessionHost({
+    conversationPreparationFactory: createRuntimeConversationPreparationFactory(
+      journalDatabase.db,
+      deps.stateDirectory
+    ),
     store,
     adapter,
     agents,
@@ -353,20 +345,17 @@ async function installOnJournal(
     journalDatabase,
     logger: deps.logger
   })
-  const stopVisualsSweep = deps.nativeChatVisuals
-    ? scheduleNativeChatVisualsSweep({
-        stateDirectory: deps.stateDirectory,
-        listHeldSessionIds: () => (store.readOnly ? null : store.listHeldSessionIds()),
-        logger: deps.logger
-      })
-    : undefined
-  const stopCommands = bindAtRestCommandContexts(
-    registrations.map(({ adapter }) => adapter.atRestCommands)
-  )
+  const stopBackgroundWork = startRuntimeBackgroundWork({
+    deps,
+    opened,
+    registrations,
+    deliveryHost: host.deps.conversationDeliveryHost,
+    modelCatalog
+  })
   try {
     setStructuredAgentSessionHost(host)
   } catch (error) {
-    stopCommands()
+    stopBackgroundWork()
     throw error
   }
   return {
@@ -374,10 +363,6 @@ async function installOnJournal(
     adapter,
     journalDatabase,
     waitForRecovery: lifecycle.drain,
-    stopBackgroundWork: () => {
-      stopCommands()
-      stopVisualsSweep?.()
-      modelCatalog?.stop()
-    }
+    stopBackgroundWork
   }
 }

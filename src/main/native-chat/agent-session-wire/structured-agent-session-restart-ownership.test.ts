@@ -147,29 +147,63 @@ it('replays the same logical continuation through the durable send ledger', asyn
 })
 
 // A send that throws after Orca may have taken it is not proof it was not delivered.
-it('keeps a continuation unconfirmed when its accepted message cannot be read back', async () => {
-  const { host, store } = await interruptedRestart()
-  vi.spyOn(console, 'warn').mockImplementation(() => {})
+it('recovers a committed but unfolded continuation through close and replay without resending', async () => {
+  const { host, store, dispatch, acquire } = await interruptedRestart()
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
   expect(await host.restartResume.list()).toHaveLength(1)
-  continuationCannotFold()
+  const sending = vi.spyOn(host, 'send')
+  const fold = continuationCannotFold()
 
-  const result = await host.restartResume
-    .continueAfterRestart([SESSION], 'modal')
-    .finally(() => vi.restoreAllMocks())
+  try {
+    const result = await host.restartResume
+      .continueAfterRestart([SESSION], 'modal')
+      .finally(() => fold.mockRestore())
+    const sent = sending.mock.calls[0]?.[1]
+    if (!sent) {
+      throw new Error('the continuation was not sent')
+    }
 
-  expect(result.continued).toMatchObject([{ sessionId: SESSION, outcome: 'unknown' }])
-  // Filed as unconfirmed, with a warning in the chat.
-  expect(result.failed).toMatchObject([{ sessionId: SESSION, outcome: 'unconfirmed' }])
-  expect(await statusNotes(host)).toContainEqual({
-    text: AGENT_SESSION_RESTART_CONTINUATION_UNCONFIRMED_NOTE,
-    tone: 'warning'
-  })
-  // Its acceptance committed with its submission: a resend replays it.
-  expect(
-    store
+    expect(result.continued).toMatchObject([{ sessionId: SESSION, outcome: 'unknown' }])
+    expect(result.failed).toMatchObject([{ sessionId: SESSION, outcome: 'unconfirmed' }])
+    const accepted = store
       .listOperationRows()
       .find((row) => row.callerKey === STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER)
-  ).toMatchObject({ outcome: { status: 'succeeded' } })
+    expect(accepted).toMatchObject({ outcome: { status: 'succeeded' } })
+    expect((await host.journalSnapshot(SESSION)).submissions).toEqual([])
+    expect(acquire).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+
+    await host.close(SESSION, 'evict')
+    const recovered = await host.journalSnapshot(SESSION)
+    // Durable replay proves this host-authored send never reached a provider; it stays rejected.
+    expect(recovered.submissions).toMatchObject([
+      { clientMessageId: sent.envelope.clientOperationId, dispatchState: 'rejected' }
+    ])
+    const replay = await host.send(
+      { callerKey: STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER },
+      { envelope: sent.envelope, body: sent.body }
+    )
+    expect(replay).toMatchObject({
+      ok: true,
+      replayed: true,
+      value: { submission: recovered.submissions[0] }
+    })
+    expect((await host.journalSnapshot(SESSION)).submissions).toEqual(recovered.submissions)
+    expect(
+      store
+        .listOperationRows()
+        .filter((row) => row.callerKey === STRUCTURED_AGENT_SESSION_RESTART_CONTINUATION_CALLER)
+    ).toEqual([accepted])
+    expect(acquire).not.toHaveBeenCalled()
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(await host.restartResume.listFailures()).toMatchObject([
+      { sessionId: SESSION, outcome: 'unconfirmed' }
+    ])
+  } finally {
+    fold.mockRestore()
+    sending.mockRestore()
+    warning.mockRestore()
+  }
 })
 
 // A throw after the message is in the chat is answered as a resend would be: it was delivered.

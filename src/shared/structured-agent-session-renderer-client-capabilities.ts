@@ -1,3 +1,7 @@
+import {
+  NATIVE_CONVERSATION_RUNTIME_CAPABILITY,
+  NATIVE_CONVERSATION_TRANSFER_RECOVERY_CAPABILITY
+} from './conversation-runtime-capabilities'
 import { AGENT_SESSION_COHERENT_MODEL_CATALOG_CAPABILITY } from './structured-agent-session-surface-capabilities'
 import { AGENT_SESSION_CURRENT_REQUESTS_CLIENT_CAPABILITY } from './agent-session-current-requests-capability'
 import { AGENT_SESSION_BACKGROUND_TASK_CHILD_VIEWS_CAPABILITY } from './agent-session-background-task-child-views-capability'
@@ -25,6 +29,8 @@ import {
  * refused every chat.
  */
 export const STRUCTURED_AGENT_SESSION_RENDERER_CLIENT_CAPABILITIES = [
+  NATIVE_CONVERSATION_RUNTIME_CAPABILITY,
+  NATIVE_CONVERSATION_TRANSFER_RECOVERY_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   CLAUDE_STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,
   // It reads each host's `agentSession.agents` and renders a chat of any agent listed there.

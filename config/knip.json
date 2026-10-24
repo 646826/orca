@@ -40,6 +40,7 @@
     "src/main/claude-accounts/claude-profile-setup-worker-entry.ts",
     "src/main/persistence/profile-state/profile-state-backup-worker-entry.ts",
     "src/main/persistence/profile-state/profile-state-writer-worker-entry.ts",
+    "src/main/native-chat/conversations/conversation-scratch-worker-entry.ts",
     "src/main/orcad/orcad-local-serve-selection-entry.ts",
     "src/main/orcad/launcher.ts",
     "src/main/claude-accounts/claude-profile-wsl-entry.ts",

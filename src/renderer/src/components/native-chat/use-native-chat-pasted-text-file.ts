@@ -98,6 +98,9 @@ export function useNativeChatPastedTextFile(args: {
       void window.api.ui
         .savePastedTextAsFile({
           text,
+          ...(owner.kind === 'local' && owner.structuredSessionId
+            ? { localAttachmentOwner: { sessionId: owner.structuredSessionId } }
+            : {}),
           ...(target
             ? { runtimeEnvironmentId: target.environmentId, agentSessionAttachment: target }
             : {})

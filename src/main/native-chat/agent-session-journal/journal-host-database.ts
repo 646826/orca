@@ -10,6 +10,7 @@ import type Database from '../../sqlite/sync-database'
 import {
   openJournalDatabase,
   runJournalTransaction,
+  type JournalMigrationGuard,
   type OpenJournalDatabase
 } from './journal-database'
 import { journalOpenRefusalError } from './journal-open-failure'
@@ -37,10 +38,10 @@ export class JournalHostDatabase {
     this.readOnly = opened.readOnly
   }
 
-  static open(stateDirectory: string): JournalHostDatabase {
+  static open(stateDirectory: string, withMigration?: JournalMigrationGuard): JournalHostDatabase {
     mkdirSync(stateDirectory, { recursive: true })
     return new JournalHostDatabase(
-      openJournalDatabase(journalDatabasePath(stateDirectory)),
+      openJournalDatabase(journalDatabasePath(stateDirectory), withMigration),
       stateDirectory
     )
   }

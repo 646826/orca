@@ -1,3 +1,4 @@
+import { requireConversationMutationCapability } from './conversation-gate'
 // The restart-resume offer: list it, act on it, or turn it down.
 //
 // Each method reaches for records on disk this process may not have opened yet, so each builds the
@@ -45,7 +46,16 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
       const host = requireStructuredHost(ctx)
       // Offers this client was never shown stay for a client that can show them.
       const audience = structuredAgentsReadBy(ctx, host.knownAgentIds())
-      const dismissed = await host.restartResume.dismiss(params.sessionIds, audience)
+      const selected = [
+        ...(await host.restartResume.list(audience)),
+        ...(await host.restartResume.listFailures(audience))
+      ].filter((row) => params.sessionIds?.includes(row.sessionId) ?? true)
+      for (const row of selected) {
+        requireConversationMutationCapability(ctx, host, row.sessionId)
+      }
+      const dismissed = await host.restartResume.dismiss(params.sessionIds, audience, (sessionId) =>
+        requireConversationMutationCapability(ctx, host, sessionId)
+      )
       if (params.sessionIds === undefined) {
         // The dismissal removed every pending and in-flight record this client sees, so a second
         // read would only add a new failure point after the user's explicit dismissal.
@@ -68,10 +78,23 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
     handler: async (params, ctx) => {
       await ensureStructuredHostInstalled(ctx)
       const host = requireStructuredHost(ctx)
+      const selected = await host.restartResume.list(
+        structuredAgentsReadBy(ctx, host.knownAgentIds())
+      )
+      for (const row of selected) {
+        if (params.sessionIds === undefined || params.sessionIds.includes(row.sessionId)) {
+          requireConversationMutationCapability(ctx, host, row.sessionId)
+        }
+      }
       return host.restartResume.continueAfterRestart(
         params.sessionIds,
         structuredCallerFor(ctx).callerKey,
-        structuredAgentsReadBy(ctx, host.knownAgentIds())
+        structuredAgentsReadBy(ctx, host.knownAgentIds()),
+        {
+          conversationMutationSupported: structuredCallerFor(ctx).conversationMutationSupported,
+          assertMutationSupported: (sessionId) =>
+            requireConversationMutationCapability(ctx, host, sessionId)
+        }
       )
     }
   }),
@@ -85,7 +108,12 @@ export const STRUCTURED_AGENT_SESSION_RESTART_RESUME_METHODS = [
     handler: async (params, ctx) => {
       await ensureStructuredHostInstalled(ctx)
       const host = requireStructuredHost(ctx)
-      return host.restartResume.continueInterrupted(params.sessionId, params.turnItemId)
+      requireConversationMutationCapability(ctx, host, params.sessionId)
+      return host.restartResume.continueInterrupted(params.sessionId, params.turnItemId, {
+        conversationMutationSupported: structuredCallerFor(ctx).conversationMutationSupported,
+        assertMutationSupported: (sessionId) =>
+          requireConversationMutationCapability(ctx, host, sessionId)
+      })
     }
   }),
   defineMethod({

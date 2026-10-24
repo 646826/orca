@@ -8,11 +8,13 @@ import {
  *  cannot overwrite the user's text, commits at most once, and answers the
  *  window rename request addressed to this tab. */
 export function useSortableTabRename({
+  enabled = true,
   tabId,
   title,
   customTitle,
   onSetCustomTitle
 }: {
+  enabled?: boolean
   tabId: string
   title: string
   customTitle?: string | null
@@ -25,21 +27,28 @@ export function useSortableTabRename({
   const committedOrCancelledRef = useRef(false)
 
   const handleRenameOpen = useCallback(() => {
+    if (!enabled) {
+      return
+    }
     committedOrCancelledRef.current = false
     // Why: snapshot title once; don't refresh if tab.title changes mid-edit (e.g. OSC) so the user's edits aren't overwritten.
     setRenameValue(customTitle ?? title)
     setIsEditing(true)
-  }, [customTitle, title])
+  }, [customTitle, enabled, title])
 
   const commitRename = useCallback(() => {
-    if (committedOrCancelledRef.current) {
+    if (!enabled || committedOrCancelledRef.current) {
       return
     }
     committedOrCancelledRef.current = true
     const trimmed = renameValue.trim()
     onSetCustomTitle(tabId, trimmed.length > 0 ? trimmed : null)
     setIsEditing(false)
-  }, [renameValue, onSetCustomTitle, tabId])
+  }, [enabled, renameValue, onSetCustomTitle, tabId])
+
+  if (!enabled && isEditing) {
+    setIsEditing(false)
+  }
 
   const cancelRename = useCallback(() => {
     committedOrCancelledRef.current = true
@@ -52,8 +61,11 @@ export function useSortableTabRename({
       renameFocusFrameRef.current = null
     }
     if (!input) {
+      // Detach cancels the draft before a stale blur can commit it.
+      committedOrCancelledRef.current = true
       return
     }
+    committedOrCancelledRef.current = false
     // Why: defer past Radix menu teardown/focus restore; key off input mount so title updates don't re-select edited text.
     renameFocusFrameRef.current = requestAnimationFrame(() => {
       renameFocusFrameRef.current = null

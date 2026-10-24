@@ -1,3 +1,7 @@
+import type {
+  RuntimeMobileSessionConversationTab,
+  ConversationSurfaceInventory
+} from '../../../src/shared/conversation-inventory'
 import type { MobileFileMedia } from '../files/mobile-file-media'
 import type { StructuredAgentId } from '../../../src/shared/agent-session-provider-handle'
 import type { DiffComment } from '../../../src/shared/diff-comment-types'
@@ -14,9 +18,16 @@ import type { MobileNativeChatIdentity } from './mobile-native-chat-eligibility'
 
 export type Terminal = TerminalRecord
 
-export type MobileSessionTabType = 'terminal' | 'markdown' | 'file' | 'browser' | 'agent-session'
+export type MobileSessionTabType =
+  | 'terminal'
+  | 'markdown'
+  | 'file'
+  | 'browser'
+  | 'agent-session'
+  | 'conversation'
 
 export type MobileSessionTab =
+  | RuntimeMobileSessionConversationTab
   | {
       type: 'terminal'
       id: string
@@ -71,6 +82,7 @@ export type MobileSessionTab =
   | MobileBrowserTab
 
 export type SessionTabsResult = {
+  conversationSurfaces?: ConversationSurfaceInventory
   worktree: string
   publicationEpoch?: string
   snapshotVersion: number

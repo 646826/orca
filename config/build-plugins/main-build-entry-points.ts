@@ -40,6 +40,9 @@ export const MAIN_BUILD_ENTRY_POINTS: Record<string, string> = {
   'profile-state-backup-worker-entry': resolve(
     'src/main/persistence/profile-state/profile-state-backup-worker-entry.ts'
   ),
+  'conversation-scratch-worker-entry': resolve(
+    'src/main/native-chat/conversations/conversation-scratch-worker-entry.ts'
+  ),
   'profile-state-writer-worker-entry': resolve(
     'src/main/persistence/profile-state/profile-state-writer-worker-entry.ts'
   ),

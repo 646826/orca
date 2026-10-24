@@ -48,8 +48,11 @@ describe('session tab RPC methods', () => {
   })
 
   it('defaults legacy paired activation to the authenticated caller identity', async () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This isolated fixture implements every method reached by the selected tab RPC; unexpected calls fail without using a real runtime.
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      // Legacy callers still receive the aggregate-mutation guard after inventory admission.
+      openAgentSessionRecordStore: async () => ({ conversations: { membership: () => null } }),
       listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       activateMobileSessionTab: vi.fn().mockResolvedValue({ tabs: [] })
     } as unknown as OrcaRuntimeService
@@ -66,8 +69,9 @@ describe('session tab RPC methods', () => {
       { clientKind: 'runtime', pairedDeviceId: 'device-a' }
     )
 
-    expect(replies).toHaveLength(1)
+    expect(replies.map((reply) => JSON.parse(reply).ok)).toEqual([true])
     expect(runtime.activateMobileSessionTab).toHaveBeenCalledWith('id:wt-1', 'tab-1', undefined, {
+      assertAgentSessionMutation: expect.any(Function),
       notifyClients: true,
       clientNavigationId: 'device-a',
       navigation: 'caller'
@@ -174,8 +178,11 @@ describe('session tab RPC methods', () => {
   })
 
   it('preserves explicit user closes from current runtime clients', async () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This isolated fixture implements every method reached by the selected tab RPC; unexpected calls fail without using a real runtime.
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      // Legacy callers still receive the aggregate-mutation guard after inventory admission.
+      openAgentSessionRecordStore: async () => ({ conversations: { membership: () => null } }),
       listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       refuseUnattributedMobileSessionTabClose: vi.fn(),
       closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true })
@@ -193,8 +200,9 @@ describe('session tab RPC methods', () => {
       { clientKind: 'runtime', pairedDeviceId: 'current-runtime' }
     )
 
-    expect(replies).toHaveLength(1)
+    expect(replies.map((reply) => JSON.parse(reply).ok)).toEqual([true])
     expect(runtime.closeMobileSessionTab).toHaveBeenCalledWith('id:wt-1', 'tab-1', {
+      assertAgentSessionMutation: expect.any(Function),
       reason: 'user',
       clientNavigationId: 'current-runtime'
     })
@@ -202,8 +210,11 @@ describe('session tab RPC methods', () => {
   })
 
   it('preserves reasonless explicit closes from authenticated legacy mobile clients', async () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This isolated fixture implements every method reached by the selected tab RPC; unexpected calls fail without using a real runtime.
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      // Legacy callers still receive the aggregate-mutation guard after inventory admission.
+      openAgentSessionRecordStore: async () => ({ conversations: { membership: () => null } }),
       listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       refuseUnattributedMobileSessionTabClose: vi.fn(),
       closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true })
@@ -217,16 +228,20 @@ describe('session tab RPC methods', () => {
       { clientKind: 'mobile' }
     )
 
-    expect(replies).toHaveLength(1)
+    expect(replies.map((reply) => JSON.parse(reply).ok)).toEqual([true])
     expect(runtime.closeMobileSessionTab).toHaveBeenCalledWith('id:wt-1', 'tab-1', {
+      assertAgentSessionMutation: expect.any(Function),
       reason: 'user'
     })
     expect(runtime.refuseUnattributedMobileSessionTabClose).not.toHaveBeenCalled()
   })
 
   it('preserves reasonless closes from authenticated legacy runtime clients', async () => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This isolated fixture implements every method reached by the selected tab RPC; unexpected calls fail without using a real runtime.
     const runtime = {
       getRuntimeId: () => 'test-runtime',
+      // Legacy callers still receive the aggregate-mutation guard after inventory admission.
+      openAgentSessionRecordStore: async () => ({ conversations: { membership: () => null } }),
       listMobileSessionTabs: vi.fn().mockResolvedValue(visibleSnapshot()),
       refuseUnattributedMobileSessionTabClose: vi.fn(),
       closeMobileSessionTab: vi.fn().mockResolvedValue({ closed: true })
@@ -240,8 +255,9 @@ describe('session tab RPC methods', () => {
       { clientKind: 'runtime', pairedDeviceId: 'legacy-runtime' }
     )
 
-    expect(replies).toHaveLength(1)
+    expect(replies.map((reply) => JSON.parse(reply).ok)).toEqual([true])
     expect(runtime.closeMobileSessionTab).toHaveBeenCalledWith('id:wt-1', 'tab-1', {
+      assertAgentSessionMutation: expect.any(Function),
       reason: 'user',
       clientNavigationId: 'legacy-runtime'
     })
@@ -348,12 +364,16 @@ describe('session tab RPC methods', () => {
     )
 
     expect(response.ok).toBe(true)
-    expect(runtime.moveMobileSessionTab).toHaveBeenCalledWith('id:wt-1', {
-      tabId: 'tab-1::leaf-1',
-      targetGroupId: 'group-left',
-      kind: 'reorder',
-      tabOrder: ['tab-2::leaf-1', 'tab-1::leaf-1']
-    })
+    expect(runtime.moveMobileSessionTab).toHaveBeenCalledWith(
+      'id:wt-1',
+      {
+        tabId: 'tab-1::leaf-1',
+        targetGroupId: 'group-left',
+        kind: 'reorder',
+        tabOrder: ['tab-2::leaf-1', 'tab-1::leaf-1']
+      },
+      undefined
+    )
   })
 
   it('rejects ambiguous tab move payloads', async () => {
@@ -396,12 +416,16 @@ describe('session tab RPC methods', () => {
     )
 
     expect(response.ok).toBe(true)
-    expect(runtime.moveMobileSessionTab).toHaveBeenCalledWith('id:wt-1', {
-      tabId: 'tab-1',
-      targetGroupId: 'group-2',
-      kind: 'split',
-      splitDirection: 'right'
-    })
+    expect(runtime.moveMobileSessionTab).toHaveBeenCalledWith(
+      'id:wt-1',
+      {
+        tabId: 'tab-1',
+        targetGroupId: 'group-2',
+        kind: 'split',
+        splitDirection: 'right'
+      },
+      undefined
+    )
   })
 
   it('dispatches ordinary terminal creation with the requested tab group', async () => {

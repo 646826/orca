@@ -1,3 +1,5 @@
+import type { RuntimeMobileSessionConversationTab } from './conversation-inventory'
+export type { RuntimeMobileSessionConversationTab } from './conversation-inventory'
 import type { AgentStatusEntry } from './agent-status-types'
 import type { BrowserCertificateFailure, BrowserLoadError } from './browser-workspace-types'
 import type { RuntimeBrowserPlacement } from './runtime-browser-placement'
@@ -140,6 +142,7 @@ export type RuntimeMobileSessionTerminalClientTab =
   | (RuntimeMobileSessionTerminalTab & { status: 'ready'; terminal: string })
 
 export type RuntimeMobileSessionClientTab =
+  | RuntimeMobileSessionConversationTab
   | RuntimeMobileSessionTerminalClientTab
   | RuntimeMobileSessionMarkdownTab
   | RuntimeMobileSessionFileTab

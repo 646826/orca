@@ -38,6 +38,8 @@ export { performCancel } from './structured-agent-session-turns-cancel'
 
 export type AgentSessionTurnContext = {
   sessionId: string
+  /** Revalidates trusted caller negotiation immediately before a new effect. */
+  assertMutationSupported?: () => void
   journal: AgentSessionJournal
   fence: number
   /** The host's projection of what work is current (`structuredAgentSessionCurrentWork`), read

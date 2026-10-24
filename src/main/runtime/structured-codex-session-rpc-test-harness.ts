@@ -4,6 +4,7 @@
 // test pushes notifications, blocking requests and the child's exit back through its handlers.
 
 import { mkdtemp, rm } from 'node:fs/promises'
+import { acquireProfileStateRuntimeAdmission } from '../persistence/profile-state/profile-state-access'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, vi } from 'vitest'
@@ -197,6 +198,7 @@ export async function openStructuredCodexRpcHarness(
   }
   let operations = 0
   const root = await mkdtemp(join(tmpdir(), 'orca-structured-integration-'))
+  const admission = acquireProfileStateRuntimeAdmission(root)
   const codex = fakeCodex()
   // `<13-digit ms>-<32 hex>`, the only shape the durable ledger accepts. Real time, not a frozen
   // constant: the runtime under test stamps the ledger with its own clock and refuses a future id.
@@ -288,6 +290,7 @@ export async function openStructuredCodexRpcHarness(
     },
     dispose: async () => {
       await stopStructuredAgentSessionRuntime()
+      admission.release()
       await rm(root, { recursive: true, force: true })
     }
   }

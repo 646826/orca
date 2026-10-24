@@ -1,3 +1,4 @@
+import type { ConversationEvidenceLaunchCapture } from '../native-chat/conversations/conversation-evidence-registration'
 import { FakeAcpChild } from './acp-scripted-connection.test-fixture'
 export { FakeAcpChild, PID } from './acp-scripted-connection.test-fixture'
 
@@ -58,13 +59,21 @@ export type AcpAdapterRig = {
   readonly ended: Extract<StructuredAgentSessionLifecycleEvent, { type: 'ended' }>[]
   started(): StructuredAgentSessionProviderOpenResult
   openFailure(): unknown
-  settled: Parameters<NonNullable<AcpStructuredSessionAdapterDeps['onDispatchSettledLate']>>[0][]
+  settled: Exclude<
+    Parameters<NonNullable<AcpStructuredSessionAdapterDeps['onDispatchSettledLate']>>[0],
+    { state: 'origin-correlated' }
+  >[]
+  correlations: Extract<
+    Parameters<NonNullable<AcpStructuredSessionAdapterDeps['onDispatchSettledLate']>>[0],
+    { state: 'origin-correlated' }
+  >[]
   acquire(options?: {
     fence?: number
     onSpawned?: () => Promise<void>
     signal?: AbortSignal
     waitForStart?: boolean
     options?: Readonly<Record<string, string>>
+    evidenceLaunch?: ConversationEvidenceLaunchCapture
     permissionMode?: AgentChatPermissionMode
   }): ReturnType<AcpStructuredSessionAdapter['acquire']>
   sent(method: string): FakeFrame[]
@@ -86,6 +95,7 @@ export async function openAcpAdapterRig(
   const spawned: string[] = []
   const lifecycle: StructuredAgentSessionLifecycleEvent[] = []
   const settled: AcpAdapterRig['settled'] = []
+  const correlations: AcpAdapterRig['correlations'] = []
   let openFailure: unknown
   let opened: StructuredAgentSessionProviderOpenResult | null = null
   const startListeners = new Set<() => void>()
@@ -151,7 +161,13 @@ export async function openAcpAdapterRig(
     },
     readProcessStartTime: async () => 1_700_000_000_000,
     dataDirectory: join(tmpdir(), 'orca-acp-adapter-rig'),
-    onDispatchSettledLate: (settlement) => settled.push(settlement),
+    onDispatchSettledLate: (settlement) => {
+      if ('state' in settlement && settlement.state === 'origin-correlated') {
+        correlations.push(settlement)
+      } else {
+        settled.push(settlement)
+      }
+    },
     mintGeneration: () => 'gen-acp',
     now: () => 5_000,
     ...options.deps,
@@ -186,6 +202,7 @@ export async function openAcpAdapterRig(
     },
     openFailure: () => openFailure,
     settled,
+    correlations,
     acquire: async (acquireOptions = {}) => {
       openFailure = undefined
       opened = null
@@ -202,6 +219,7 @@ export async function openAcpAdapterRig(
         events: rig.eventSink,
         ...(acquireOptions.options ? { options: acquireOptions.options } : {}),
         ...(acquireOptions.signal ? { signal: acquireOptions.signal } : {}),
+        evidenceLaunch: acquireOptions.evidenceLaunch,
         ...(acquireOptions.permissionMode ? { permissionMode: acquireOptions.permissionMode } : {}),
         onSpawned: async () => {
           spawned.push('onSpawned')

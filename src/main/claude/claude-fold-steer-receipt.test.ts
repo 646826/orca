@@ -53,6 +53,7 @@ type Rig = {
   claude: ReturnType<typeof fakeClaude>
   events: ClaudeStructuredSessionEvent[]
   settled: Mock
+  correlations: Mock
   turns: () => NonNullable<ReturnType<typeof readAgentJournalTurn>>[]
   deliver: (captured: CapturedFoldFrame) => void
   /** Dispatch at the capture offset and return the client UUID adopted by the CLI. */
@@ -72,6 +73,7 @@ async function riggedAdapter(
   }
   const events: ClaudeStructuredSessionEvent[] = []
   const settled = vi.fn()
+  const correlations = vi.fn()
   const claude = fakeClaude({ replayUuid: null, ...claudeOptions })
   const deps: ClaudeStructuredSessionAdapterDeps = {
     resolveLaunch: async () => ({
@@ -90,7 +92,19 @@ async function riggedAdapter(
     readProcessStartTime: async () => T0 - 1_000,
     now: () => nowMs,
     persistHandle: async () => {},
-    onDispatchSettledLate: settled
+    onDispatchSettledLate: (event) => {
+      if ('state' in event && event.state === 'origin-correlated') {
+        expect(event).toMatchObject({
+          state: 'origin-correlated',
+          sessionId: 'session-1',
+          fence: 7,
+          turnIdentity: { provider: 'legacy', agent: 'claude', sessionId: PROVIDER_SESSION_ID }
+        })
+        correlations(event)
+      } else {
+        settled(event)
+      }
+    }
   }
   const adapter = new ClaudeStructuredSessionAdapter(deps)
   await adapter.acquire({ identity: identityFor(), fence: 7, spawnToken: 'spawn-9', events: sink })
@@ -100,6 +114,7 @@ async function riggedAdapter(
     claude,
     events,
     settled,
+    correlations,
     turns: () =>
       appended.flatMap((item) => {
         const turn = readAgentJournalTurn(item.body)
@@ -158,6 +173,18 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
       }
     }
 
+    expect(rig.correlations).toHaveBeenCalledWith({
+      state: 'origin-correlated',
+      sessionId: 'session-1',
+      clientMessageId: 'client-first',
+      fence: 7,
+      turnIdentity: {
+        provider: 'legacy',
+        agent: 'claude',
+        sessionId: PROVIDER_SESSION_ID,
+        recordId: `turn-lifecycle:${first}`
+      }
+    })
     const turnIds = [...new Set(rig.turns().map((turn) => turn.turnId))]
     expect(turnIds).toEqual([first])
     expect(rig.turns().every((turn) => turn.state !== 'interrupted')).toBe(true)
@@ -172,6 +199,7 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: steer }
     })
     expect(replayEventFor(rig.events, steer)).not.toHaveProperty('startsTurn')
@@ -224,6 +252,7 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: steer }
     })
 
@@ -268,11 +297,13 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: steer }
     })
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer-2',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: secondSteer }
     })
   })
@@ -305,6 +336,7 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: steer }
     })
   })
@@ -356,6 +388,7 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: steer }
     })
   })
@@ -418,6 +451,7 @@ describe('Claude fold receipt for a mid-turn send (captured orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-steer',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: steer }
     })
   })
@@ -523,6 +557,7 @@ describe('Claude fold receipt boundaries (synthetic orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-b',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: uuidB }
     })
   })
@@ -540,6 +575,7 @@ describe('Claude fold receipt boundaries (synthetic orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-b',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: 'fresh-turn-2' }
     })
   })
@@ -560,6 +596,7 @@ describe('Claude fold receipt boundaries (synthetic orders)', () => {
     expect(rig.settled).toHaveBeenCalledWith({
       sessionId: 'session-1',
       clientMessageId: 'client-b',
+      originCorrelation: 'exact',
       providerIdentity: { provider: 'claude', sessionId: PROVIDER_SESSION_ID, uuid: uuidB }
     })
     expect(rig.settled).not.toHaveBeenCalledWith(

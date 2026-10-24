@@ -40,7 +40,7 @@ export function getActiveEntityIdForTabType(
   }
   // Why: `activeTabId` is terminal-only state that keeps naming a live background terminal while a
   // structured tab is active, so falling through here cycles from a tab the user is not on.
-  if (activeTabType === 'agent-session') {
+  if (activeTabType === 'agent-session' || activeTabType === 'conversation') {
     return activeAgentSessionEntityId
   }
   if (activeTabType === 'simulator') {

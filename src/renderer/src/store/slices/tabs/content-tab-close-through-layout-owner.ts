@@ -30,7 +30,7 @@ export function closesThroughLayoutOwner(contentType: Tab['contentType']): boole
  * picked before that is itself gone falls back to the group's history), and the workspace's
  * surface follows its active group. Nothing while the tab still shows.
  */
-function selectAfterClose(
+export function selectAfterClose(
   get: () => AppState,
   tab: Pick<Tab, 'id' | 'worktreeId' | 'groupId'>,
   nextActiveTabId: string | null

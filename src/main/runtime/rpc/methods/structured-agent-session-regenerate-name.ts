@@ -1,3 +1,4 @@
+import { requireConversationMutationCapability } from './conversation-gate'
 // `agentSession.regenerateName` — the user asks the host to name a chat again after naming failed.
 // It answers once the run is accepted; the status feed carries the new name or the new failure.
 
@@ -12,6 +13,7 @@ export const STRUCTURED_AGENT_SESSION_REGENERATE_NAME_METHODS = [
     params: OptionsParams,
     handler: async (params, ctx) => {
       const host = await requireInstalledStructuredHost(ctx, params.sessionId)
+      requireConversationMutationCapability(ctx, host, params.sessionId)
       return { accepted: host.regenerateConversationName(params.sessionId) }
     }
   })

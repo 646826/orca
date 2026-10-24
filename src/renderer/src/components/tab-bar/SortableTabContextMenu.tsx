@@ -3,6 +3,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger
@@ -114,6 +116,8 @@ type SortableTabContextMenuProps = {
   /** Toggle the tab between terminal and native chat view. */
   onToggleViewMode?: () => void
   canSplitTerminal?: boolean
+  canSwitchSessionSurface?: boolean
+  canEditAppearance?: boolean
   /** Set only for a native chat tab. */
   nativeChat?: NativeChatTabSession
 }
@@ -141,6 +145,8 @@ export function SortableTabContextMenu({
   isChatView = false,
   onToggleViewMode,
   canSplitTerminal = true,
+  canSwitchSessionSurface = true,
+  canEditAppearance = true,
   nativeChat
 }: SortableTabContextMenuProps): React.JSX.Element {
   const keybindings = useAppStore((state) => state.keybindings)
@@ -186,24 +192,28 @@ export function SortableTabContextMenu({
             </DropdownMenuItem>
           </>
         ) : null}
-        <TabSessionSurfaceSwitchMenuItems
-          key={sessionSwitchOpening}
-          tab={tab}
-          nativeChat={nativeChat}
-          leadingSeparator={!showTerminalViewSwitch}
-          onComplete={onSessionSwitchComplete}
-        />
+        {canSwitchSessionSurface && (
+          <TabSessionSurfaceSwitchMenuItems
+            key={sessionSwitchOpening}
+            tab={tab}
+            nativeChat={nativeChat}
+            leadingSeparator={!showTerminalViewSwitch}
+            onComplete={onSessionSwitchComplete}
+          />
+        )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onTogglePin}>
-          {isPinned ? (
-            <PinOff className="size-3.5 shrink-0" />
-          ) : (
-            <Pin className="size-3.5 shrink-0" />
-          )}
-          {isPinned
-            ? translate('auto.components.tab.bar.SortableTabContextMenu.417722e9c2', 'Unpin Tab')
-            : translate('auto.components.tab.bar.SortableTabContextMenu.60f958ec75', 'Pin Tab')}
-        </DropdownMenuItem>
+        {canEditAppearance && (
+          <DropdownMenuItem onSelect={onTogglePin}>
+            {isPinned ? (
+              <PinOff className="size-3.5 shrink-0" />
+            ) : (
+              <Pin className="size-3.5 shrink-0" />
+            )}
+            {isPinned
+              ? translate('auto.components.tab.bar.SortableTabContextMenu.417722e9c2', 'Unpin Tab')
+              : translate('auto.components.tab.bar.SortableTabContextMenu.60f958ec75', 'Pin Tab')}
+          </DropdownMenuItem>
+        )}
         <CopyTabIdMenuItem unifiedTabId={unifiedTabId} />
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => !isPinned && onClose(tab.id)} disabled={isPinned}>
@@ -216,40 +226,52 @@ export function SortableTabContextMenu({
           {translate('auto.components.tab.bar.SortableTabContextMenu.8d16f9cd30', 'Close Others')}
         </DropdownMenuItem>
         <CloseSplitPaneMenuItem onCloseSplitPane={onCloseSplitPane} />
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onRenameOpen}>
-          <Pencil className="size-3.5" />
-          {translate('auto.components.tab.bar.SortableTabContextMenu.2f697b3c31', 'Change Title')}
-          {renameShortcut ? <DropdownMenuShortcut>{renameShortcut}</DropdownMenuShortcut> : null}
-        </DropdownMenuItem>
-        <div className="px-2 pt-1.5 pb-1">
-          <div className="text-xs font-medium text-muted-foreground mb-1.5">
-            {translate('auto.components.tab.bar.SortableTabContextMenu.35e8892fd0', 'Tab Color')}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {TAB_COLORS.map((color) => {
-              const isSelected = tab.color === color.value
-              return (
-                <DropdownMenuItem
-                  key={color.label}
-                  className={`relative h-4 w-4 min-w-4 p-0 rounded-full border ${
-                    isSelected ? 'ring-1 ring-foreground/70 ring-offset-1 ring-offset-popover' : ''
-                  } ${
-                    color.value ? 'border-transparent' : 'border-muted-foreground/50 bg-transparent'
-                  }`}
-                  style={color.value ? { backgroundColor: color.value } : undefined}
-                  onSelect={() => {
-                    onSetTabColor(tab.id, color.value)
-                  }}
-                >
-                  {color.value === null && (
-                    <span className="absolute block h-px w-3 rotate-45 bg-muted-foreground/80" />
-                  )}
-                </DropdownMenuItem>
-              )
-            })}
-          </div>
-        </div>
+        {canEditAppearance && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onRenameOpen}>
+              <Pencil className="size-3.5" />
+              {translate(
+                'auto.components.tab.bar.SortableTabContextMenu.2f697b3c31',
+                'Change Title'
+              )}
+              {renameShortcut ? (
+                <DropdownMenuShortcut>{renameShortcut}</DropdownMenuShortcut>
+              ) : null}
+            </DropdownMenuItem>
+            <div className="px-2 pt-1.5 pb-1">
+              <div className="text-xs font-medium text-muted-foreground mb-1.5">
+                {translate(
+                  'auto.components.tab.bar.SortableTabContextMenu.35e8892fd0',
+                  'Tab Color'
+                )}
+              </div>
+              <DropdownMenuRadioGroup
+                className="flex flex-wrap"
+                value={tab.color ?? ''}
+                onValueChange={(color) => onSetTabColor(tab.id, color || null)}
+              >
+                {TAB_COLORS.map((color) => (
+                  <DropdownMenuRadioItem
+                    key={color.label}
+                    value={color.value ?? ''}
+                    aria-label={color.label}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="relative flex size-4 items-center justify-center rounded-full border border-border"
+                      style={{ backgroundColor: color.value ?? undefined }}
+                    >
+                      {color.value === null && (
+                        <span className="absolute block h-px w-3 rotate-45 bg-muted-foreground" />
+                      )}
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </div>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

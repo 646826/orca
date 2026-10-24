@@ -61,7 +61,10 @@ export function useTerminalBulkCloseActions(
           closeTerminalTab(unifiedTab.entityId, { skipRunningProcessConfirm: true })
           continue
         }
-        if (unifiedTab?.contentType === 'agent-session') {
+        if (
+          unifiedTab?.contentType === 'agent-session' ||
+          unifiedTab?.contentType === 'conversation'
+        ) {
           state.closeUnifiedTab(unifiedTab.id)
           continue
         }

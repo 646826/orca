@@ -49,7 +49,10 @@ export async function runCommandReceiptMutation<TValue>(
       return acceptedReceipt
     })
     return {
-      write: receipt.write,
+      write: (...args: Parameters<JournalOperationReceipt['write']>) => {
+        context.assertMutationSupported?.()
+        receipt.write(...args)
+      },
       committed: () => {
         committed = true
         receipt.committed()

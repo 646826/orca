@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import {
   HOST_TEST_SESSION,
@@ -16,12 +20,16 @@ import {
 import { acpScriptedChild } from './acp-scripted-child.test-fixture'
 
 let stateDirectory: string | undefined
+
+let admission: ProfileStateRuntimeAdmission | undefined
 let operation = 0
 const operationId = () => `${Date.now()}-${(++operation).toString(16).padStart(32, '0')}`
 const caller = { callerKey: 'scripted-acp-runtime' }
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (stateDirectory) {
     await rm(stateDirectory, { recursive: true, force: true })
   }
@@ -31,6 +39,7 @@ afterEach(async () => {
 describe.each(['grok', 'opencode'] as const)('%s runtime with a scripted ACP child', (agent) => {
   it('attaches and accepts a send while startup is held, then delivers once the protocol session opens', async () => {
     stateDirectory = await mkdtemp(join(tmpdir(), 'orca-scripted-acp-'))
+    admission = acquireProfileStateRuntimeAdmission(stateDirectory)
     const script = acpScriptedChild(agent)()
     const host = await ensureStructuredAgentSessionHost({
       logger: createStructuredAgentSessionLogger(),

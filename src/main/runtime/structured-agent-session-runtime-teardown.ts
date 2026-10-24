@@ -1,3 +1,10 @@
+import { agentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
+import {
+  finishAgentSessionRecordStoreRelease,
+  completeAgentSessionRecordStoreStop,
+  type OpenedAgentSessionRecordStore
+} from './agent-session-record-store-slot'
+import { ConversationScratchClient } from '../native-chat/conversations/conversation-scratch-client'
 // Stopping an installed structured-session runtime, and the durable record of WHY it is stopping.
 //
 // Split out of `structured-agent-session-runtime` because installing a runtime and tearing one down
@@ -40,6 +47,10 @@ export async function tearDownRuntime(
 ): Promise<void> {
   // First, before any wait: should this quit not finish, the next start must still know it was a
   // quit and not a crash.
+  const scratchDrain = ConversationScratchClient.stopAndDrain(
+    installed.journalDatabase.stateDirectory
+  )
+  void scratchDrain.catch(() => {})
   recordAgentSessionRuntimeEnd(trigger)
   // An exit settled while recovery drains wakes delivery, which would start a fresh child for
   // teardown to kill; queued messages wait for the next launch instead.
@@ -78,6 +89,11 @@ export async function tearDownRuntime(
   } catch (error) {
     failures.push(error)
   }
+  try {
+    await scratchDrain
+  } catch (error) {
+    failures.push(error)
+  }
   if (failures.length === 0) {
     // After every sink drained and every conversation settled: nothing writes after this.
     installed.journalDatabase.close()
@@ -87,4 +103,47 @@ export async function tearDownRuntime(
     throw failures[0]
   }
   throw new AggregateError(failures, 'structured agent-session runtime teardown failed')
+}
+
+export async function tearDownRuntimeOwners({
+  recordStore,
+  outstanding,
+  pendingTeardown,
+  trigger
+}: {
+  recordStore: OpenedAgentSessionRecordStore | null
+  outstanding: InstalledRuntime[]
+  pendingTeardown: Set<InstalledRuntime>
+  trigger: AgentSessionResumeTrigger
+}): Promise<void> {
+  const failures: unknown[] = []
+  if (
+    recordStore &&
+    !outstanding.some((runtime) => runtime.journalDatabase === recordStore.journalDatabase)
+  ) {
+    try {
+      recordStore.journalDatabase.close()
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  for (const runtime of outstanding) {
+    try {
+      await tearDownRuntime(runtime, trigger)
+    } catch (error) {
+      pendingTeardown.add(runtime)
+      failures.push(error)
+    }
+  }
+  if (recordStore?.journalDatabase.isClosed) {
+    finishAgentSessionRecordStoreRelease(recordStore)
+  }
+  await agentModelCatalogStore.flushPersistence()
+  if (failures.length === 1) {
+    throw failures[0]
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'structured agent-session runtime teardown failed')
+  }
+  completeAgentSessionRecordStoreStop()
 }

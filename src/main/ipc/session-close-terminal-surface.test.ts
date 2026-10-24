@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>()
 }))
 vi.mock('electron', () => ({
+  app: { getPath: () => '/synthetic-profile' },
   ipcMain: {
     handle: (name: string, callback: (...args: unknown[]) => unknown) =>
       mocks.handlers.set(name, callback),
@@ -22,7 +23,10 @@ const TAB = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
 const LEAF = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
 const OTHER_LEAF = '6fa459ea-ee8a-4ca4-894e-db77e160355e'
 
-const closeTerminalSurfaceFromRenderer = vi.fn(async () => {})
+let protectedSurface = false
+const closeTerminalSurfaceFromRenderer = vi.fn(async (_input: unknown, admit?: () => void) => {
+  admit?.()
+})
 
 function closeSurface(args: unknown): unknown {
   return mocks.handlers.get('session:close-terminal-surface')?.({}, args)
@@ -34,11 +38,19 @@ function launchIn(leafId: string) {
 
 beforeEach(() => {
   mocks.handlers.clear()
+  protectedSurface = false
   closeTerminalSurfaceFromRenderer.mockClear()
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the handler under test reaches only the runtime's renderer close.
-  const runtime = { closeTerminalSurfaceFromRenderer } as never
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the close handler never touches the store.
-  registerSessionHandlers({} as never, runtime)
+  const runtime = {
+    closeTerminalSurfaceFromRenderer,
+    openAgentSessionRecordStore: async () => ({
+      conversations: {
+        surfaces: { readByTab: () => (protectedSurface ? { visible: true } : null) }
+      }
+    })
+  } as never
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this close fixture has no remote partitions; only the host-id census is read.
+  registerSessionHandlers({ getWorkspaceSessionHostIds: () => [] } as never, runtime)
 })
 
 afterEach(() => {
@@ -52,11 +64,14 @@ describe("the user's close of a launch's tab or pane", () => {
     await closeSurface({ worktreeId: WT, target: { kind: 'tab', tabId: TAB }, reason: 'user' })
 
     expect(running.closedByUser()).toBe(true)
-    expect(closeTerminalSurfaceFromRenderer).toHaveBeenCalledWith({
-      worktreeId: WT,
-      target: { kind: 'tab', tabId: TAB },
-      reason: 'user'
-    })
+    expect(closeTerminalSurfaceFromRenderer).toHaveBeenCalledWith(
+      {
+        worktreeId: WT,
+        target: { kind: 'tab', tabId: TAB },
+        reason: 'user'
+      },
+      expect.any(Function)
+    )
   })
 
   it('stops only the launch in the pane the user closed, not a split beside it', async () => {
@@ -92,4 +107,26 @@ describe("the user's close of a launch's tab or pane", () => {
 
     expect(running.closedByUser()).toBe(false)
   })
+})
+
+it('refuses a protected surface before stopping its launch or invoking terminal close', async () => {
+  const running = launchIn(LEAF)
+  protectedSurface = true
+  await expect(
+    closeSurface({ worktreeId: WT, target: { kind: 'tab', tabId: TAB }, reason: 'user' })
+  ).rejects.toThrow()
+  expect(running.closedByUser()).toBe(false)
+  expect(closeTerminalSurfaceFromRenderer).not.toHaveBeenCalled()
+})
+
+it('rechecks promotion while close waits for its durable turn, before marking the launch', async () => {
+  const running = launchIn(LEAF)
+  closeTerminalSurfaceFromRenderer.mockImplementationOnce(async (_input, admit) => {
+    protectedSurface = true
+    admit?.()
+  })
+  await expect(
+    closeSurface({ worktreeId: WT, target: { kind: 'tab', tabId: TAB }, reason: 'user' })
+  ).rejects.toThrow()
+  expect(running.closedByUser()).toBe(false)
 })

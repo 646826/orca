@@ -1,4 +1,12 @@
-import { ipcMain } from 'electron'
+import {
+  remoteConversationSaveAuthority,
+  assertRemoteConversationLayoutClose
+} from './runtime-environments/remote-conversation-save-authority'
+import { parseExecutionHostId } from '../../shared/execution-host'
+import { assertConversationLayoutCommand } from '../runtime/rpc/methods/conversation-layout-gate'
+import { assertConversationLayoutSave } from '../persistence/conversation-layout-save'
+import { resolveHostId } from '../persistence/loading-store/session-host-partitions'
+import { app, ipcMain } from 'electron'
 import type { Store } from '../persistence'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { parseTerminalSurfaceCloseTarget } from '../../shared/terminal-surface-close-target'
@@ -17,6 +25,22 @@ export function registerSessionHandlers(store: Store, runtime: OrcaRuntimeServic
   // Why: renderer saves would change a fenced host's frozen source partition.
   const isFenced = (hostId?: string | null): boolean =>
     isFrozenOrcadSourceSessionPartition(store, hostId)
+
+  const surfacesFor = (
+    records: Awaited<ReturnType<OrcaRuntimeService['openAgentSessionRecordStore']>>,
+    hostId: ReturnType<typeof resolveHostId>,
+    incoming: WorkspaceSessionState
+  ) => {
+    if (parseExecutionHostId(hostId)?.kind === 'runtime') {
+      return remoteConversationSaveAuthority({
+        userDataPath: app.getPath('userData'),
+        hostId,
+        current: store.getWorkspaceSession(hostId),
+        incoming
+      })
+    }
+    return records.conversations.surfaces.list({ executionHostId: hostId, includeHidden: true })
+  }
 
   // Why: hostId is an optional second arg so an older renderer that invokes
   // these channels without it keeps reading/writing the 'local' partition
@@ -49,8 +73,18 @@ export function registerSessionHandlers(store: Store, runtime: OrcaRuntimeServic
     )
   }
 
-  ipcMain.handle('session:set', (_event, args: WorkspaceSessionState, hostId?: string | null) => {
-    if (!isFenced(hostId)) {
+  ipcMain.handle(
+    'session:set',
+    async (_event, args: WorkspaceSessionState, hostId?: string | null) => {
+      if (isFenced(hostId)) {
+        return
+      }
+      const records = await runtime.openAgentSessionRecordStore()
+      if (isFenced(hostId)) {
+        return
+      }
+      const resolved = resolveHostId(hostId)
+      assertConversationLayoutSave(args, surfacesFor(records, resolved, args), resolved)
       store.setWorkspaceSession(
         ORCA_LAYOUT_OWNER_IS_MAIN
           ? sessionForMain(args, hostId)
@@ -58,10 +92,31 @@ export function registerSessionHandlers(store: Store, runtime: OrcaRuntimeServic
         hostId
       )
     }
-  })
+  )
 
-  ipcMain.handle('session:patch', (_event, args: WorkspaceSessionPatch, hostId?: string | null) => {
-    if (!isFenced(hostId)) {
+  ipcMain.handle(
+    'session:patch',
+    async (_event, args: WorkspaceSessionPatch, hostId?: string | null) => {
+      if (isFenced(hostId)) {
+        return
+      }
+      // All saves share readiness ordering; a view patch must not overtake an earlier full save.
+      const records = await runtime.openAgentSessionRecordStore()
+      if (isFenced(hostId)) {
+        return
+      }
+      if (
+        Object.hasOwn(args, 'unifiedTabs') ||
+        Object.hasOwn(args, 'tabGroups') ||
+        Object.hasOwn(args, 'tabGroupLayouts')
+      ) {
+        const resolved = resolveHostId(hostId)
+        assertConversationLayoutSave(
+          { ...store.getWorkspaceSession(hostId), ...args },
+          surfacesFor(records, resolved, { ...store.getWorkspaceSession(hostId), ...args }),
+          resolved
+        )
+      }
       store.patchWorkspaceSession(
         ORCA_LAYOUT_OWNER_IS_MAIN
           ? patchForMain(args, hostId)
@@ -69,7 +124,7 @@ export function registerSessionHandlers(store: Store, runtime: OrcaRuntimeServic
         hostId
       )
     }
-  })
+  )
 
   // Why: a renderer save cannot shrink membership main owns, so each close commits it explicitly.
   ipcMain.handle(
@@ -81,14 +136,33 @@ export function registerSessionHandlers(store: Store, runtime: OrcaRuntimeServic
       }
       // Why only these two: main alone closes a tab for its process exit.
       const reason = args.reason === 'cleanup' ? 'cleanup' : 'user'
-      if (reason === 'user') {
-        // A launch still starting or delivering in what the user closed stops, and says so.
-        markAgentLaunchesClosedByUser(args.worktreeId, target)
-      }
-      return runtime.closeTerminalSurfaceFromRenderer({
-        worktreeId: args.worktreeId,
-        target,
-        reason
+      const worktreeId = args.worktreeId
+      return runtime.openAgentSessionRecordStore().then((records) => {
+        const check = () => {
+          assertRemoteConversationLayoutClose({
+            userDataPath: app.getPath('userData'),
+            hostIds: store.getWorkspaceSessionHostIds(),
+            readSession: (hostId) => store.getWorkspaceSession(hostId),
+            workspaceId: worktreeId,
+            tabId: target.tabId
+          })
+          assertConversationLayoutCommand(
+            records,
+            {
+              type: 'closeTabs',
+              workspace: worktreeId,
+              tabIds: [target.tabId]
+            },
+            false
+          )
+        }
+        check()
+        return runtime.closeTerminalSurfaceFromRenderer({ worktreeId, target, reason }, () => {
+          check()
+          if (reason === 'user') {
+            markAgentLaunchesClosedByUser(worktreeId, target)
+          }
+        })
       })
     }
   )

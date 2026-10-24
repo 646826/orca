@@ -1,3 +1,4 @@
+import type { NativeChatAgentSwitchPickerProps } from './NativeChatAgentSwitchPicker'
 import { NativeChatPromptEditor } from './NativeChatPromptEditor'
 import type { NativeChatComposerInput } from './native-chat-composer-input'
 import type { ClipboardEventHandler, KeyboardEventHandler, RefObject } from 'react'
@@ -27,6 +28,7 @@ import { translate } from '@/i18n/i18n'
 import { useNativeChatComposerDraftUnsaved } from './use-native-chat-draft-unsaved'
 
 export type NativeChatComposerFieldProps = {
+  agentSwitch?: NativeChatAgentSwitchPickerProps
   /** Pane identity published to the drop pipeline so a native file drop lands
    *  only in the composer it was dropped on. */
   /** Owner of the draft the editor's document is saved with. */
@@ -167,7 +169,8 @@ export function NativeChatComposerField({
   contextUsage,
   sessionOptionsPickerRequest,
   goalMode,
-  agent
+  agent,
+  agentSwitch
 }: NativeChatComposerFieldProps): React.JSX.Element {
   const draftNotSaved = useNativeChatComposerDraftUnsaved(draftScopeKey)
   const optionCount =
@@ -354,6 +357,7 @@ export function NativeChatComposerField({
             />
             <div className="flex flex-wrap items-center gap-2 pt-0.5">
               <NativeChatComposerActions
+                agentSwitch={agentSwitch}
                 attachDisabled={attachDisabled}
                 dictationDisabled={dictationDisabled}
                 sendDisabled={sendButtonDisabled}

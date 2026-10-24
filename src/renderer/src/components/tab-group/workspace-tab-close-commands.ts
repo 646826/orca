@@ -47,6 +47,10 @@ export function createWorkspaceTabCloseCommands({
       return
     }
     const whenEmptied = opts?.whenEmptied ?? null
+    if (item.contentType === 'conversation') {
+      closeUnifiedTab(item.id)
+      return
+    }
     if (item.contentType === 'agent-session') {
       closeUnifiedTab(item.id)
       whenEmptied?.()

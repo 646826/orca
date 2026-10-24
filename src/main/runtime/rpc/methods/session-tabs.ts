@@ -1,3 +1,4 @@
+import { projectConversationSessionTabs } from './session-tabs-conversation-projection'
 import { terminalImageViewerSupported } from '../../terminal-image-viewer-env'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
 import { getExplicitWorktreeIdSelector } from '../../runtime-worktree-selection'
@@ -29,14 +30,18 @@ export const SESSION_TAB_METHODS = [
     name: 'session.tabs.list',
     permission: 'workspace',
     params: WorktreeTabSelector,
-    handler: async (params, { runtime, pairedDeviceId, clientKind, clientCapabilities }) => {
+    handler: async (params, context) => {
+      const { runtime, pairedDeviceId, clientKind, clientCapabilities } = context
       await restoreStructuredTabsIfSupported({ runtime, clientKind, clientCapabilities })
-      return projectSessionTabsForClient(
-        await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId, {
-          includeInitialSurfaceLaunch: true
-        }),
-        clientKind,
-        clientCapabilities
+      return projectConversationSessionTabs(
+        projectSessionTabsForClient(
+          await runtime.listMobileSessionTabs(params.worktree, pairedDeviceId, {
+            includeInitialSurfaceLaunch: true
+          }),
+          clientKind,
+          clientCapabilities
+        ),
+        context
       )
     }
   }),
@@ -108,11 +113,16 @@ export const SESSION_TAB_METHODS = [
     name: 'session.tabs.subscribe',
     permission: 'workspace',
     params: WorktreeTabSelector,
-    handler: async (
-      params,
-      { runtime, connectionId, requestId, pairedDeviceId, clientKind, clientCapabilities, signal },
-      emit
-    ) => {
+    handler: async (params, context, emit) => {
+      const {
+        runtime,
+        connectionId,
+        requestId,
+        pairedDeviceId,
+        clientKind,
+        clientCapabilities,
+        signal
+      } = context
       let subscriptionId: string | null = null
       let released = false
       let endOnRelease = true
@@ -183,7 +193,12 @@ export const SESSION_TAB_METHODS = [
         emit({
           type: 'snapshot',
           ...tabDelta.full(
-            withProofDelta(projectSessionTabsForClient(initial, clientKind, clientCapabilities))
+            withProofDelta(
+              projectConversationSessionTabs(
+                projectSessionTabsForClient(initial, clientKind, clientCapabilities),
+                context
+              )
+            )
           )
         })
         if (released) {
@@ -214,7 +229,10 @@ export const SESSION_TAB_METHODS = [
               type: 'updated',
               ...tabDelta.update(
                 withProofDelta(
-                  projectSessionTabsForClient(streamSnapshot, clientKind, clientCapabilities)
+                  projectConversationSessionTabs(
+                    projectSessionTabsForClient(streamSnapshot, clientKind, clientCapabilities),
+                    context
+                  )
                 )
               )
             })

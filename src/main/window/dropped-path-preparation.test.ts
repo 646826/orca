@@ -124,7 +124,8 @@ describe('dropped path preparation through the shared copy queue', () => {
     vi.mocked(open).mockClear()
     const result = await enqueue({
       paths: [source, source, reused, second],
-      consumer: 'local-chat'
+      consumer: 'local-chat',
+      localAttachmentOwner: { sessionId: 'founder' }
     })
     expect(result.paths[0]).toBe(result.paths[1])
     expect(result.paths[2]).toBe(reused)
@@ -133,6 +134,11 @@ describe('dropped path preparation through the shared copy queue', () => {
     expect(await readFile(sibling, 'utf8')).toBe('keep')
     expect(write).toHaveBeenCalledTimes(spill ? 0 : 2)
     expect(move).toHaveBeenCalledTimes(spill ? 2 : 0)
+    if (spill) {
+      expect(move.mock.calls.every((call) => call[3]?.sessionId === 'founder')).toBe(true)
+    } else {
+      expect(write.mock.calls.every((call) => call[2]?.sessionId === 'founder')).toBe(true)
+    }
     const provider = await realpath(env.sourceTempRoot)
     expect(vi.mocked(open).mock.calls.every(([path]) => String(path).startsWith(provider))).toBe(
       true

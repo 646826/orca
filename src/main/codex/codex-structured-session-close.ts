@@ -1,3 +1,4 @@
+import { closeCodexConversationEvidence } from './codex-conversation-evidence'
 import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import type { CodexAppServerConnection } from './codex-app-server-connection-types'
 import { closeProcessRegistry } from '@orca/process-host/close-process-registry'
@@ -26,6 +27,7 @@ export function handleCodexSessionExit(input: {
     input.prompts?.clear()
     return false
   }
+  closeCodexConversationEvidence(session.conversationEvidence)
   session.exitObservedAt ??= Date.now()
   session.events?.observeExit?.(session.dispatchEchoes.heldSends(), session.exitObservedAt)
   // Release waits even if terminal journal rows are refused.
@@ -97,6 +99,7 @@ export async function closeCodexPublishedSession(
     requested: options?.requestedClose ?? true,
     reason: options?.unexpectedReason ?? new Error('codex session closed')
   }
+  closeCodexConversationEvidence(session.conversationEvidence)
   // Keep unproven closes indexed for a safe retry.
   const exited = await session.connection.close()
   if (exited !== true) {

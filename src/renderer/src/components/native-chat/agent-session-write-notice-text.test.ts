@@ -33,7 +33,12 @@ describe('desktop words for a write that did not happen', () => {
   })
 
   it('keeps the English catalog in step with the shared copy', () => {
-    expect(en.components['native-chat'].writeNotice).toEqual(AGENT_SESSION_WRITE_NOTICE_COPY)
+    const chat = en.components['native-chat']
+    expect({
+      ...chat.writeNotice,
+      conversationClearRunning: chat.agentSwitch.clearRunning,
+      conversationClearRequired: chat.agentSwitch.clearRequired
+    }).toEqual(AGENT_SESSION_WRITE_NOTICE_COPY)
   })
 
   it('translates each sentence whole and shows a provider reason as written', async () => {

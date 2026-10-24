@@ -131,16 +131,19 @@ export function codexTurnRequestOptions(
   return options
 }
 
-export function projectCodexSessionOptions(
-  session: CodexSession | undefined,
-  options: Readonly<Record<string, string>>
-) {
-  if (!session || session.ended || session.connection.closed) {
-    return undefined
-  }
-  const selected = { ...session, options: new Map(Object.entries(options)) }
+/** What a turn on this child runs, a steer its running turn's: the request's model and effort over
+ *  the thread's own, and the tier it runs as. */
+export function codexRanOptions(
+  session: Parameters<typeof codexTurnRequestOptions>[0]
+): Record<string, string> {
+  const requested = codexTurnRequestOptions(session)
+  const thread = session.reportedOptions ?? {}
+  const model = requested.model ?? thread.model
+  const effort = requested.effort ?? (model === thread.model ? thread.effort : undefined)
+  const { serviceTier } = requested
   return {
-    models: codexSessionCapabilities(selected).models,
-    options: codexTurnRequestOptions(selected)
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(serviceTier ? { serviceTier } : {})
   }
 }

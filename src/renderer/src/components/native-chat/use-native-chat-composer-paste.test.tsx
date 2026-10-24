@@ -192,7 +192,8 @@ describe('useNativeChatComposerPaste', () => {
     })
     expect(mocks.saveClipboardImageAsTempFile).toHaveBeenCalledWith({
       forNativeChatDraft: true,
-      forStructuredChat: true
+      forStructuredChat: true,
+      localAttachmentOwner: { sessionId: 'session-1' }
     })
   })
 

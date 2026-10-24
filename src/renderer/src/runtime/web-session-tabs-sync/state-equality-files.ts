@@ -133,8 +133,8 @@ export function sameGroups(
 }
 
 export function toVisibleTabType(tab: Tab): WebSessionTabsSyncState['activeTabType'] {
-  if (tab.contentType === 'agent-session') {
-    return 'agent-session'
+  if (tab.contentType === 'agent-session' || tab.contentType === 'conversation') {
+    return tab.contentType
   }
   if (tab.contentType === 'browser' || tab.contentType === 'terminal') {
     return tab.contentType

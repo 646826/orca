@@ -237,3 +237,56 @@ afterEach(() => {
     expect(document.querySelector('[data-native-chat-background-tasks]')).not.toBeNull()
   })
 }
+
+it('uses aggregate history without exposing active native journal controls on historical rows', () => {
+  const display = {
+    messages: [
+      {
+        id: 'historical',
+        role: 'assistant' as const,
+        source: 'transcript' as const,
+        timestamp: 1,
+        blocks: [{ type: 'text' as const, text: 'Earlier agent response' }]
+      }
+    ],
+    status: 'ready' as const,
+    sessionId: 'conversation',
+    agent: 'codex' as const,
+    hasMore: true,
+    loadingEarlier: false,
+    olderHistoryGeneration: 7,
+    loadEarlier: vi.fn(async () => 'applied' as const),
+    readPhase: 'ready' as const,
+    readCurrent: true
+  }
+  render(
+    <NativeChatStructuredSession
+      isVisible
+      isFocusedGroup
+      tabId="same-tab"
+      sessionId="active-native"
+      target={{ kind: 'local' }}
+      agent="codex"
+      conversationView={{
+        conversationId: 'conversation',
+        contextGeneration: 2,
+        composerScopeKey: 'founder-draft',
+        display,
+        notices: []
+      }}
+    />
+  )
+  expect(mocks.controllerProps).toMatchObject({ sessionId: 'active-native' })
+  expect(mocks.messageListProps).toMatchObject({
+    session: display,
+    journalItems: undefined,
+    journalSubmissions: undefined,
+    journalLatestTurn: undefined,
+    journalHostWork: undefined,
+    subagentRoster: undefined,
+    railOutline: undefined,
+    settledTurns: undefined,
+    deliveryNotices: undefined
+  })
+  expect(mocks.composerProps?.structuredTransport).toBeDefined()
+})

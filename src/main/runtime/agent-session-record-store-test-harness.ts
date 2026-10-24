@@ -42,10 +42,16 @@ function databaseFor(stateDirectory: string): Database.Database {
 /** Opens, or reopens, the store in `stateDirectory`: what a fresh app process does at launch. */
 export async function openTestAgentSessionRecordStore(
   stateDirectory: string,
-  options: { hostId?: string } = {}
+  options: Partial<
+    Pick<
+      Parameters<typeof AgentSessionRecordStore.open>[0],
+      'hostId' | 'conversationDeliveryEvidence' | 'conversationDeliveryCommit'
+    >
+  > = {}
 ): Promise<AgentSessionRecordStore> {
   return AgentSessionRecordStore.open({
     journalDatabase: openTestJournalHostDatabase(stateDirectory),
+    ...options,
     hostId: options.hostId ?? TEST_HOST_ID
   })
 }

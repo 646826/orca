@@ -100,7 +100,8 @@ export class AgentSessionRecoveryCapsule {
   beginResume(
     sessionIds: readonly string[] | undefined,
     operationId: string,
-    now: number
+    now: number,
+    assertMutationSupported?: (sessionId: string) => void
   ): Promise<AgentSessionResumeMarker[]> {
     return withFileTransactionLock(this.filePath, async () => {
       const state = await this.readState()
@@ -108,6 +109,7 @@ export class AgentSessionRecoveryCapsule {
       const requested = sessionIds === undefined ? null : new Set(sessionIds)
       const selected: AgentSessionResumeMarker[] = []
       const reserve = (marker: AgentSessionResumeMarker): RecoveryEntry => {
+        assertMutationSupported?.(marker.sessionId)
         selected.push(marker)
         return { state: 'in-progress', operationId, startedAt: now, marker }
       }

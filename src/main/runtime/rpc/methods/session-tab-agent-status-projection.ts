@@ -1,3 +1,4 @@
+import { projectSessionTabBrowserPlacements } from './session-tab-browser-placement-projection'
 import {
   AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
   AGENT_STATUS_RESTORED_UNCONFIRMED_RUNTIME_CAPABILITY,
@@ -222,4 +223,15 @@ function pruneStructuredTabGroupLayout(
   const first = pruneStructuredTabGroupLayout(layout.first, validGroupIds)
   const second = pruneStructuredTabGroupLayout(layout.second, validGroupIds)
   return first && second ? { ...layout, first, second } : (first ?? second)
+}
+
+export function projectSessionTabsForClient(
+  snapshot: RuntimeMobileSessionTabsResult,
+  clientKind: 'mobile' | 'runtime' | undefined,
+  clientCapabilities: Parameters<typeof projectSessionTabAgentStatus>[2]
+): RuntimeMobileSessionTabsResult {
+  return projectSessionTabBrowserPlacements(
+    projectSessionTabAgentStatus(snapshot, clientKind, clientCapabilities),
+    clientCapabilities
+  )
 }

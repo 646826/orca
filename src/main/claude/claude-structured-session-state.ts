@@ -1,3 +1,6 @@
+import type { ConversationEvidenceLaunchPermit } from '../native-chat/conversations/conversation-evidence-registration'
+import type { NativeConversationCapabilityObservation } from '../native-chat/conversations/conversation-native-capabilities'
+import type { ConversationOriginCorrelation } from '../native-chat/conversations/conversation-origin-correlation'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import type { AgentJournalDispatchRejection } from '../../shared/agent-session-failure-words'
@@ -77,9 +80,11 @@ export type ClaudeStructuredSessionEvent =
 export type ClaudeStartedSend = { clientMessageId: string; requestedAt?: number }
 
 export type ClaudeLateDispatchOutcome =
+  | ConversationOriginCorrelation
   | {
       clientMessageId: string
       providerIdentity: AgentJournalItemIdentity
+      originCorrelation?: 'exact'
     }
   /** `unrun`: the CLI reported it removed the send without running it. */
   | ({ clientMessageId: string; state: 'rejected'; unrun?: true } & AgentJournalDispatchRejection)
@@ -133,6 +138,7 @@ export type ClaudeDispatchWaiter = {
   requestedAt: number | null
   /** Set when the provider replay settled this waiter before send returned. */
   settledUuid?: string
+  settledOriginCorrelation?: 'exact'
   /** Settled with no echo (failed write, child exit, doubt after start); a replay may name it. */
   retired?: boolean
   /** The CLI's last non-terminal `command_lifecycle` state for this send; in memory only. */
@@ -142,6 +148,12 @@ export type ClaudeDispatchWaiter = {
 }
 
 export type ClaudeSession = {
+  conversationEvidence?: {
+    permit: ConversationEvidenceLaunchPermit
+    launchFingerprint: string
+    confirmed?: boolean
+  }
+  contextDeliveryObservation?: NativeConversationCapabilityObservation
   connection: ClaudeStreamJsonConnection
   providerSessionId: string
   /** Latest main-chain message seen on the live stream, mid-turn included. */

@@ -1,3 +1,4 @@
+import type { ConversationLayoutCommand } from './workspace-layout-conversation-commands'
 // Commands a client sends to change the layout (design 2.1). The pure module applies only their
 // layout effect. Refusals that need facts it does not hold stay with the runtime: an unknown
 // workspace or unresolved folder home (catalog), `shell_override_refused` and
@@ -147,7 +148,10 @@ export type LayoutCommand =
       /** The editor's file id: the tab's entity. Absent (main's own opens only; the wire still
        *  requires it): main picks it for `file`. */
       fileId?: string
-      contentType: Exclude<TabContentType, 'terminal' | 'browser' | 'agent-session' | 'simulator'>
+      contentType: Exclude<
+        TabContentType,
+        'terminal' | 'browser' | 'agent-session' | 'conversation' | 'simulator'
+      >
       /** Present for edit-mode files, which are restored after restart. */
       file?: LayoutEditorFile
       /** What the tab shows beyond its file; not saved. */
@@ -236,6 +240,7 @@ export type LayoutCommand =
       initial?: InitialSurfaceReason
       split?: NewGroupSplit
     })
+  | ConversationLayoutCommand
   | (On & { type: 'startPane'; paneKey: string })
   | (On & { type: 'restartPane'; paneKey: string })
   | (On & {

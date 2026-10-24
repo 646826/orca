@@ -201,9 +201,9 @@ export function throwAfterContinuationAccepted(): void {
 
 /** The continuation's submission commits but cannot fold: Orca took a message it cannot vouch
  *  for. Install it right before the continuation, the only submission written from then on. */
-export function continuationCannotFold(): void {
+export function continuationCannotFold() {
   const fold = reducer.applyJournalRow
-  vi.spyOn(reducer, 'applyJournalRow').mockImplementation((state, row) => {
+  return vi.spyOn(reducer, 'applyJournalRow').mockImplementation((state, row) => {
     if (row.kind !== 'submission') {
       fold(state, row)
       return

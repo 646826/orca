@@ -59,7 +59,10 @@ export async function recordStructuredAgentSessionOptionIntent(
     agents: Pick<StructuredAgentRegistry, 'definition'>
     adapter?: Pick<StructuredAgentSessionAdapter, 'projectOptions'>
   } & Parameters<typeof savedAgentSessionCatalogModels>[0],
-  ctx: Pick<AgentSessionTurnContext, 'sessionId' | 'fence' | 'publish' | 'now'>,
+  ctx: Pick<
+    AgentSessionTurnContext,
+    'sessionId' | 'fence' | 'publish' | 'now' | 'assertMutationSupported'
+  >,
   input: { key: string; value: string }
 ): Promise<TurnOutcome<AgentSessionOptionResult>> {
   const { sessionId, fence } = ctx
@@ -75,17 +78,26 @@ export async function recordStructuredAgentSessionOptionIntent(
     }
   }
   const models = await savedAgentSessionCatalogModels(deps, record.provider, sessionId)
+  ctx.assertMutationSupported?.()
   let options: Readonly<Record<string, string>>
   if (input.key === AGENT_CHAT_PERMISSION_MODE_OPTION_ID) {
     const permissionMode = input.value
-    await deps.store.replaceSessionOptions({ sessionId, fence, permissionMode, now: ctx.now() })
+    await deps.store.replaceSessionOptions(
+      { sessionId, fence, permissionMode, now: ctx.now() },
+      ctx.assertMutationSupported
+    )
     // The answer still names the mode among the options, as the wire always has.
     options = { ...record.options, [input.key]: input.value }
   } else {
     const picked = { sessionId, fence, ...input, models, now: ctx.now() }
     try {
       options =
-        (await deps.store.reviseSessionOptions(pickAgentSessionOption, picked)).options ?? {}
+        (
+          await deps.store.reviseSessionOptions((current, input) => {
+            ctx.assertMutationSupported?.()
+            return pickAgentSessionOption(current, input)
+          }, picked)
+        ).options ?? {}
     } catch (error) {
       // The ordered write refused a value the chat's model doesn't offer.
       if (isAgentSessionRefusalError(error)) {

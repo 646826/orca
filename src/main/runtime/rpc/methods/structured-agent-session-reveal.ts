@@ -1,3 +1,4 @@
+import { requireConversationMutationCapability } from './conversation-gate'
 // `agentSession.reveal` — republishing the tab for a chat that still exists on disk.
 //
 // A surface can hold nothing but a session id: an Agent Session History row names a chat this
@@ -37,6 +38,7 @@ export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
       try {
         const host = requireStructuredHost(ctx)
         requireStructuredAgentAudience(ctx, host.sessionAgent(params.sessionId) ?? '')
+        requireConversationMutationCapability(ctx, host, params.sessionId)
         revealed = await host.revealSession(params.sessionId)
       } catch (error) {
         // The host raises its refusal as the code itself; anything else is a genuine fault and
@@ -54,6 +56,7 @@ export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
           )
         )
       }
+      requireConversationMutationCapability(ctx, requireStructuredHost(ctx), params.sessionId)
       await ctx.runtime.publishStructuredAgentSessionTab({
         workspaceId: revealed.workspaceId,
         sessionId: revealed.sessionId,

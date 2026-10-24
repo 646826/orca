@@ -22,6 +22,28 @@ function parse(row: Record<string, unknown>): boolean {
 }
 
 describe('journal row validation', () => {
+  it('validates optional replacement boundaries without inventing legacy authority', () => {
+    const row = {
+      ...BASE,
+      kind: 'epoch',
+      reason: 'legacy_import',
+      providerHandle: { kind: 'codex', threadId: 't' }
+    }
+    expect(parse(row)).toBe(true)
+    expect(parse({ ...row, replacementOf: { epoch: 'previous', endSequence: 3 } })).toBe(true)
+    for (const replacementOf of [
+      null,
+      {},
+      { epoch: '', endSequence: 1 },
+      { epoch: 'epoch-1', endSequence: 1 },
+      { epoch: 'previous', endSequence: 0 },
+      { epoch: 'previous', endSequence: 1.5 },
+      { epoch: 'previous', endSequence: Number.MAX_SAFE_INTEGER + 1 }
+    ]) {
+      expect(parse({ ...row, replacementOf })).toBe(false)
+    }
+  })
+
   it('upcasts v1 rows to the current schema without changing their body', () => {
     const parsed = parseJournalRow(
       JSON.stringify({

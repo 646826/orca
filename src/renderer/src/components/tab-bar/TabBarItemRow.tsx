@@ -117,8 +117,11 @@ function TabBarItemRow({
       />
     )
   }
-  if (item.type === 'agent-session') {
-    const nativeChat = { sessionId: item.data.entityId, agent: item.data.agentSessionAgent }
+  if (item.type === 'agent-session' || item.type === 'conversation') {
+    const nativeChat =
+      item.type === 'agent-session'
+        ? { sessionId: item.data.entityId, agent: item.data.agentSessionAgent }
+        : undefined
     return (
       <SortableTab
         {...sortableTabProps}
@@ -130,11 +133,13 @@ function TabBarItemRow({
           color: item.data.color
         }}
         // Why: a chat records its provider, so its title or turn state must never re-identify it.
-        agent={agentTypeToIconAgent(nativeChat.agent)}
+        agent={agentTypeToIconAgent(item.data.agentSessionAgent)}
         isExpanded={false}
         onActivate={actions.activateAgentSession}
         onToggleExpand={() => {}}
         canSplitTerminal={false}
+        canSwitchSessionSurface={item.type !== 'conversation'}
+        canEditAppearance={item.type !== 'conversation'}
         nativeChat={nativeChat}
         // A tab the user named does not show the generated name, so neither does its failure.
         namingFailure={item.data.customLabel ? null : namingFailure}

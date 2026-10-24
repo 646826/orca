@@ -708,3 +708,56 @@ describe('Claude stream-json connection', () => {
     await expect(connection.close()).resolves.toBe(true)
   }, 20_000)
 })
+
+it('routes the approved evidence MCP call through the real SDK with its request signal', async () => {
+  const { conversationEvidenceToolDefinition } =
+    await import('../native-chat/conversations/conversation-evidence-tool-contract')
+  const definition = conversationEvidenceToolDefinition()
+  const scenario = scriptScenario([
+    { awaitControlRequest: 'initialize' },
+    {
+      emit: {
+        type: 'control_request',
+        request_id: 'evidence-read',
+        request: {
+          subtype: 'mcp_message',
+          server_name: 'orca-conversation-evidence',
+          message: {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: definition.name, arguments: { action: 'list' } }
+          }
+        }
+      }
+    },
+    { awaitControlResponse: 'evidence-read' },
+    HOLD_OPEN
+  ])
+  const invoke = vi.fn(async (_input: unknown, signal: AbortSignal) => {
+    expect(signal).toBeInstanceOf(AbortSignal)
+    return { sources: [], nextCursor: null }
+  })
+  const close = vi.fn(async () => {})
+  const launch = launchFor(scenario)
+  const connection = await open({
+    ...launch,
+    evidenceEnv: launch.env ?? {},
+    evidence: {
+      assertBeforeSpawn: () => {},
+      registration: { definition, confirm: () => {}, close, invoke }
+    }
+  })
+  await connection.initializationResult()
+  await until(
+    () =>
+      scenario
+        .readReport()
+        .controlResponses.find((frame) => frame.response.request_id === 'evidence-read'),
+    'the evidence MCP reply'
+  )
+  expect(invoke).toHaveBeenCalledWith({ action: 'list' }, expect.any(AbortSignal))
+  expect(JSON.stringify(scenario.readReport().controlResponses)).toContain('nextCursor')
+  await connection.close()
+  expect(close).toHaveBeenCalled()
+})

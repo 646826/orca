@@ -7,6 +7,10 @@
 // registers the rig's own beforeEach/afterEach for the importing file.
 
 import { mkdtemp, rm } from 'node:fs/promises'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
@@ -44,6 +48,7 @@ export const WORKER_2_PANE = 'tab_worker2:cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
 export let codex: ReturnType<typeof fakeCodex>
 export let root: string
+let admission: ProfileStateRuntimeAdmission
 export let runtime: OrcaRuntimeService
 export let db: OrchestrationDb
 export let host: StructuredAgentSessionHost
@@ -245,6 +250,7 @@ export async function startClearedContext(sessionId: string): Promise<void> {
 beforeEach(async () => {
   resetProviderFaults()
   root = await mkdtemp(join(tmpdir(), 'orca-structured-coordinator-mail-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   codex = fakeCodex()
   db = new OrchestrationDb(':memory:')
   runtime = startRuntime()
@@ -284,6 +290,7 @@ export function startRuntime(): OrcaRuntimeService {
 afterEach(async () => {
   try {
     await stopStructuredAgentSessionRuntime()
+    admission.release()
     db.close()
     await observationClock.drainClosedDatabaseRepair()
     vi.restoreAllMocks()

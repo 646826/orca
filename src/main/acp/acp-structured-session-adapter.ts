@@ -1,3 +1,5 @@
+import { acpDispatchWriteAuthority } from './acp-structured-write-authority'
+import * as conversation from './acp-conversation-capabilities'
 import { randomUUID } from 'node:crypto'
 import { withProviderDiagnostic } from '../../shared/agent-session-failure'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
@@ -198,8 +200,10 @@ export class AcpStructuredSessionAdapter implements StructuredAgentSessionAdapte
     await input.beforeDispatch?.()
     input.signal?.throwIfAborted()
     session.turns.dispatch({
+      requireExactOrigin: input.requireExactOrigin,
       clientMessageId: input.clientMessageId,
       prompt,
+      beforeWrite: acpDispatchWriteAuthority(input),
       requestedAt: input.requestedAt ?? this.now()
     })
     // Admission precedes provider confirmation of the send.
@@ -262,10 +266,8 @@ export class AcpStructuredSessionAdapter implements StructuredAgentSessionAdapte
   readOptions = async (input: { sessionId: string; fence: number }) =>
     readAcpLiveOptions(this.live(input.sessionId))
 
-  readCommands = (sessionId: string) => {
-    const session = this.children.sessions.get(sessionId)
-    return session && isAcpReadySession(session) ? session.options.readCommands() : undefined
-  }
+  readCommands = (sessionId: string) =>
+    conversation.readAcpSessionCommands(this.children.sessions.get(sessionId))
 
   holdsDispatch = (sessionId: string): boolean => {
     const session = this.children.sessions.get(sessionId)
@@ -285,6 +287,12 @@ export class AcpStructuredSessionAdapter implements StructuredAgentSessionAdapte
   }
 
   // Until startup opens the session, the host retains responsibility for held sends.
+  contextDeliveryCapabilities = (sessionId: string) =>
+    conversation.acpConversationCapabilities(this.children.sessions.get(sessionId))
+
+  projectOptions: NonNullable<StructuredAgentSessionAdapter['projectOptions']> = (id, requested) =>
+    conversation.projectAcpSessionOptions(this.children.sessions.get(id), requested)
+
   heldSends = (sessionId: string): ReadonlySet<string> | undefined =>
     this.children.sessions.get(sessionId)?.turns?.heldSends
 

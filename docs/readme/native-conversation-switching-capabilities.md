@@ -1,0 +1,51 @@
+# Native conversation delivery capability gates
+
+Implementation is in progress. This report separates source contracts, scripted tests and real native evidence. No account-backed cross-agent switch has been verified. No minimum supported native version is established yet.
+
+## Inspected baseline
+
+Orca: `aecb9924858d9c34adeea704b8593fd25c0b1f01`. MultiCC: `0ab1e07ac0d234a14dc9db9558d06ac2967a51c7`, compared with v2.8.5 `46944965e327b8402efb071e6d2d751665a67b8c`. Keep Orca's native adapters and operation/receipt authority; do not import MultiCC's bypass flags or fixed checkpoint budgets.
+
+Upstream main observed at implementation start: `c69e83176d6141e2e5e03f98f966c2ea01cf2e5f`, seven commits ahead. The new targeted terminal resume claims in `0a8c7680be` are relevant to later mobile/terminal coexistence review. They do not replace structured-session acquisition or journal ownership. These are historical starting-baseline observations. Current integration targets upstream `b4fa75e954f1172c53abce3cbb323c17d03d401f`; see the [verification matrix](native-conversation-switching-verification.md) for checkpoint results and outstanding gates.
+
+## Evidence and gates
+
+| Adapter      | Existing evidence                                                                                                                                                                                                                 | What remains unverified                                                                                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex        | `codex-app-server-handshake.ts` initializes experimental APIs. `codex-structured-turn-start.ts` reports admitted; journal echo settlement attributes acceptance. `codex-structured-thread-history-pages.ts` pages native history. | Passive `thread/inject_items` version/schema, persistence, readback correlation and lost-reply behavior. Initialize success is not method support.                                           |
+| Claude       | Existing SDK/native acquisition retains account/resume identity. `claude-structured-dispatch.ts` submits a UUID; provider echo resolution settles admission.                                                                      | Subscription-account continuity, enforceable non-mutating hydration, startup hooks/MCP trust and lost-reply readback. SDK package version is not a CLI compatibility floor.                  |
+| OpenCode ACP | `acp-session-runtime.ts` checks initialization protocol. `acp-session-setup.ts` negotiates native load/resume. `acp-structured-turns.ts` settles first live acceptance.                                                           | Cross-restart stable-ID reconciliation, resource transport and exact installed-agent behavior. ACP load is same-agent replay, not cross-agent import. ACP permissions are not an OS sandbox. |
+
+Adapters default to unverified context-delivery capability. The current first-turn contract recognizes Claude 2.1.309, Codex 0.159.0-alpha.3 and OpenCode 1.19.4 only after the matching protocol initializes with a live native identity and acquisition fence. These are inspected protocol contracts, not minimum supported versions or successful account-backed evaluations. Unknown versions remain unverified. Passive import, non-mutating hydration, startup trust, retrieval and model budget are not inferred from those contracts.
+
+The report is bound to runtime fingerprint, native identity, acquisition generation and applied options. The coordinator revalidates those bindings at dispatch. A renderer capability snapshot is not authorization, and protocol availability alone is not a delivery receipt: activation still requires the genuine acceptance evidence for the exact reserved send.
+
+`agent-session-context-usage.ts` already distinguishes report, estimate and unknown. Historical usage is not proof of currently available input budget. Native occupancy stays unknown until fresh compatible evidence exists. Full delivery cannot be claimed with unknown capacity.
+
+## First-turn transport
+
+Each provider's normal dispatch initially reports admission separately from acceptance. Reuse the existing client-message identity and settlement callback for the reserved triggering send. Persist manifest/envelope digest and attachment claims before dispatch. Only the proven receipt level may activate the candidate. Unknown outcomes stay reserved and require reconciliation; never replay a consequential turn automatically. Live acceptance does not prove model understanding, lasting context retention or cross-restart idempotency.
+
+The production preparation path exports captured canonical journal rows from frozen, pinned source boundaries. Recipient approval binds the target and policy; budgeted consent separately binds the exact immutable preview. Source, target, draft or option changes invalidate that preview. Full delivery requires both a current known budget and a verified estimator that reserves the triggering turn, attachments and output; the production factory currently supplies neither, so full delivery is explicitly unavailable. Preparation charges the serialized outgoing envelope once and validates retained source bytes separately. Budgeted source-backed tool projections and same-native coverage-aware omission have focused automated tests; canonical user text stays mandatory inline. Account-backed large-archive return remains unverified; the verification matrix records scoped scripted-peer large-history coverage. Per-row materialization and outgoing-envelope limits still refuse excess input rather than silently truncate it. Authenticated transport normalization is labeled separately from canonical-exact bytes; full policy still forbids semantic summaries, retrieval-only substitutions and coverage omissions. Fresh-start preparation likewise remains unavailable until a new native-generation proof is wired.
+
+The Codex evidence-tool integration registers `dynamicTools` only on a fresh `thread/start`, after the inspected initialize-version gate and startup approval. Resuming an unregistered native thread requires an explicit fresh-native fallback. This also applies after restarting Orca with a previously registered thread: durable resume registration has not been verified, so prior registration is not assumed to survive. Scripted adapter tests verify registration, routing and cancellation; they do not establish account-backed tool execution.
+
+## Execution evidence
+
+- Linux x64, Node v24.19.0, repository-pinned pnpm 12.14.0. Frozen dependency installation completed using a task-local store.
+- Baseline journal database contract suite: 86 tests passed.
+- Electron 43.7.8 initially failed to download with `EAI_AGAIN`; postinstall continued. Retrying the official installer with Node's supported environment-proxy setting succeeded. Electron/UI validation has not passed.
+- Available Codex executable reports `0.159.0-alpha.3`; version/help and offline experimental JSON schema generation inspected. The emitted schema includes `thread/inject_items` with `threadId` and raw `items`, and an empty response object. This proves only wire-shape availability in that binary, not persistence, readback, idempotency or safe startup. No provider request or private native history was accessed. Claude/OpenCode executables were initially absent from PATH; isolated official Linux packages were subsequently obtained as described below.
+- Authenticated native accounts, macOS/Windows, SSH and mobile-device verification remain pending. No hidden API billing fallback or permission weakening is allowed.
+
+The capability router regression suite exercises fail-closed behavior with scripted adapters. It is not native runtime validation. Later increments must update this report with exact native versions, commands, receipts, negative cases and unsupported cases before advertising support.
+
+### Account-free native probes
+
+Official registry tarballs for Claude Code **2.1.309** and OpenCode **1.19.4** were checked against their registry SHA-512 integrity values and unpacked only into the disposable task directory. Installer effects were inspected first. Version/help checks used empty task-local configuration, no inherited account credentials and no login commands. This follows the supported package distributions in the [Claude installation documentation](https://code.claude.com/docs/en/setup) and [OpenCode installation documentation](https://opencode.ai/docs/).
+
+An OpenCode 1.19.4 ACP initialization probe, with external plugins disabled using its documented `--pure` option, returned protocol version 1 and advertised `loadSession`, embedded context, images, and session close/fork/list/resume capabilities. The probe sent **only `initialize`**: no session creation, load, prompt or authentication request. These advertised capabilities do not establish passive cross-agent import, resource accessibility, startup enforcement or genuine delivery receipts. The normal Orca adapter must negotiate and verify its own acquisition; the probe's plugin setting is not a new product permission policy.
+
+Claude version/help inspection establishes the binary version only. Subscription continuity, SDK/native dispatch acceptance and safe hydration remain unverified.
+
+Claude 2.1.309 help also describes system-prompt snapshots: a retained session can reuse its initial system prompt even when a later launch supplies different text. Changing a launch-time system prompt therefore cannot be assumed to deliver return-to-agent deltas. The help advertises restricted/safe modes, but neither has been verified here as non-mutating hydration; they must not silently replace the user's permissions or startup configuration.

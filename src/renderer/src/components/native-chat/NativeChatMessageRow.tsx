@@ -1,3 +1,4 @@
+import { NativeChatHistoricalOwner } from './NativeChatHistoricalOwner'
 import { memo, useRef } from 'react'
 import type { NativeChatRewindSurface } from './use-native-chat-rewind'
 import type { CommentMarkdownLinkClickHandler } from '@/components/sidebar/CommentMarkdown'
@@ -74,7 +75,7 @@ function rowHasContent(content: ReturnType<typeof deriveNativeChatRowContent>): 
  *  lifted card, assistant prose as body copy, reasoning de-emphasized.
  *  Memoized: a stream frame republishes the whole transcript, but settled rows
  *  keep their block identity, so only the changed row re-renders. */
-export const MessageRow = memo(function MessageRow(
+const MessageRowContent = memo(function MessageRowContent(
   props: MessageRowProps
 ): React.JSX.Element | null {
   const {
@@ -194,3 +195,14 @@ function sameMessageRowProps(previous: MessageRowProps, next: MessageRowProps): 
     (previousRun ?? []).every((member, index) => member === nextRun?.[index])
   )
 }
+
+export const MessageRow = memo(function MessageRow(props: MessageRowProps): React.JSX.Element {
+  const source = props.message.conversationSource
+  return source ? (
+    <NativeChatHistoricalOwner source={source}>
+      <MessageRowContent {...props} rewind={undefined} />
+    </NativeChatHistoricalOwner>
+  ) : (
+    <MessageRowContent {...props} />
+  )
+}, sameMessageRowProps)

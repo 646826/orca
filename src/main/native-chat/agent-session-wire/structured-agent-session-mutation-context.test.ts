@@ -74,51 +74,65 @@ it('wakes once after a direct send commits even when publication fails', async (
   const ctx = context()
   const request = params()
   const error = new Error('listener failed after commit')
-  rig.host['sessions'].get(SESSION)?.journal.observeCommits(
+  const journal = rig.host['sessions'].get(SESSION)!.journal
+  journal.observeCommits(
     vi.fn().mockImplementationOnce(() => {
       throw error
     })
   )
-  const warn = vi.spyOn(ctx.deps.logger, 'warn')
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   expect(await sendStructuredAgentSessionTurn(ctx, CALLER, request)).toMatchObject({
     ok: true,
-    replayed: true
+    replayed: false
   })
   expect(ctx.wakeDelivery).toHaveBeenCalledExactlyOnceWith(SESSION)
-  expect(warn).toHaveBeenCalledWith(
-    expect.any(String),
-    expect.objectContaining({ scope: 'send-journal-write', error })
+  expect(warn).toHaveBeenCalledExactlyOnceWith(
+    '[agent-session-journal] durable commit observer failed',
+    error
   )
-  expect(warn).toHaveBeenCalledWith(
-    expect.any(String),
-    expect.objectContaining({
-      scope: 'command-receipt-publication',
-      refusal: 'agent_session_operation_invalid'
-    })
-  )
+  expect(await sendStructuredAgentSessionTurn(ctx, CALLER, request)).toMatchObject({
+    ok: true,
+    replayed: true,
+    value: { submission: { clientMessageId: request.envelope.clientOperationId } }
+  })
+  expect(ctx.wakeDelivery).toHaveBeenCalledOnce()
+  expect(journal.submissions()).toHaveLength(1)
+  expect(rig.dispatch).not.toHaveBeenCalled()
 })
 
 it('replays a queued draft after publication fails without waking delivery', async () => {
   await rig.workingSend()
   const ctx = context()
   const request = params('queue-if-active')
-  rig.host['sessions'].get(SESSION)?.journal.observeCommits(
+  const journal = rig.host['sessions'].get(SESSION)!.journal
+  const error = new Error('draft publication failed')
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  journal.observeCommits(
     vi.fn().mockImplementationOnce(() => {
-      throw new Error('draft publication failed')
+      throw error
     })
   )
   const accepted = await sendStructuredAgentSessionTurn(ctx, CALLER, request)
   const replay = await sendStructuredAgentSessionTurn(ctx, CALLER, request)
   expect(accepted).toMatchObject({
     ok: true,
-    replayed: true,
+    replayed: false,
     value: { queued: { state: 'waiting' } }
   })
+  expect(replay).toMatchObject({ ok: true, replayed: true })
   if (!accepted.ok || !replay.ok) {
     throw new Error('expected accepted drafts')
   }
   expect(replay.value).toEqual(accepted.value)
   expect(ctx.wakeDelivery).not.toHaveBeenCalled()
+  expect(warn).toHaveBeenCalledExactlyOnceWith(
+    '[agent-session-journal] durable commit observer failed',
+    error
+  )
+  expect(await rig.drafts()).toHaveLength(1)
+  expect(await rig.handoff(request.envelope.clientOperationId)).toBeUndefined()
+  expect(journal.submissions()).toHaveLength(1)
+  expect(rig.dispatch).toHaveBeenCalledTimes(1)
 })
 
 it('answers the same doubt on the first reply and resend when the committed row cannot fold', async () => {

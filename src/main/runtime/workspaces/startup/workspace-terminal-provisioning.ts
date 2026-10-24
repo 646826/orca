@@ -17,7 +17,10 @@ import {
 } from '../../../../shared/runtime-navigation'
 
 export abstract class OrcaRuntimeWithGetWorktreeTerminalProvisioningHost extends OrcaRuntimeWithActivateManagedWorktree {
-  abstract applyLayoutCommand(command: WindowLayoutCommand): Promise<LayoutApplyReply>
+  abstract applyLayoutCommand(
+    command: WindowLayoutCommand,
+    beforeMutation?: () => void
+  ): Promise<LayoutApplyReply>
 
   abstract splitTerminal(
     handle: string,

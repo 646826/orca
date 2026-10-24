@@ -1,3 +1,5 @@
+import { captureConversationStartScope } from './structured-conversation-start-scope'
+import { legacyAttachRefusal } from './structured-agent-session-legacy-attach'
 import type { StructuredRewindRecoveryEvidence } from './structured-rewind-recovery'
 import {
   publishAttachedChild,
@@ -21,7 +23,7 @@ import type {
   AgentSessionMutationResult
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionAttachParams } from './structured-agent-session-attach'
-import { performAttach, type AttachFlowInput } from './structured-agent-session-attach-flow'
+import { performAttach } from './structured-agent-session-attach-flow'
 import { endStructuredAgentSessionReleasedChild } from './structured-agent-session-attach-failure'
 import { stampFailedCreateOwnerVerdict } from './structured-agent-session-failed-create-refusal'
 import {
@@ -49,25 +51,8 @@ import {
   type StructuredAgentSessionAttachLock
 } from './structured-agent-session-attach-lock'
 
-export type StructuredAgentSessionAttachOptions = {
-  hostLaunchDirectory?: string
-  /** The saved list a new chat's options are admitted against, for the folder its picker read. */
-  catalogModels?: AttachFlowInput['models']
-  recordPhase?: AgentSessionCreatePhaseRecorder
-  onAcquisitionFailed?: AttachFlowInput['onAcquisitionFailed']
-  /** The queued message a start is for; see `StructuredAgentSessionProviderChild.startedFor`. */
-  startedFor?: string
-  startupOptions?: Readonly<Record<string, string>>
-  /** A close, an admitted Stop or quit aborted this attach: its refusal is that abort's. */
-  onAborted?: () => void
-  /** The startup limit aborted this attach's acquire: it failed, nobody stopped it. */
-  onStartupExpired?: () => void
-  /** An agent start's: its steps run outside the session's serialize and commit under it. */
-  lock?: StructuredAgentSessionAttachLock
-  startupAttemptId?: string
-  /** The attach made its child the session's. */
-  onPublished?: () => void
-}
+export type { StructuredAgentSessionAttachOptions } from './structured-agent-session-attach-options'
+import type { StructuredAgentSessionAttachOptions } from './structured-agent-session-attach-options'
 
 /** The attach an agent start runs under its own lock (`structured-agent-session-start-flight`);
  *  `attachStructuredAgentSession` runs the same steps inside one `serialize`, for a client. */
@@ -94,6 +79,10 @@ export function attachStructuredAgentSession(
       (async () => {
         for (;;) {
           const selected = await context.serialize(sessionId, async () => {
+            const legacyRefusal = legacyAttachRefusal(context, sessionId, options)
+            if (legacyRefusal) {
+              return { result: refuseAgentSessionMutation(legacyRefusal) }
+            }
             const child = context.sessions.get(sessionId)?.child
             const flight = context.runtimeState.startFlights.get(sessionId)
             // The owning flight alone publishes its acquisition; replay waits outside its lane.
@@ -175,6 +164,11 @@ async function runAttachUnderAbort(
 ): Promise<AgentSessionMutationResult<AgentSessionAttachResult>> {
   const sessionId = params.envelope.sessionId
   const recordPhase = options.recordPhase
+  const expectedConversationOperationKey = captureConversationStartScope(
+    context.deps.store,
+    sessionId,
+    options.expectedConversationOperationKey
+  )
   // Readers of a conversation already open are re-baselined when this attach moves its fence.
   const fenceBefore = context.sessions.has(sessionId)
     ? structuredAgentSessionConversationFence(context.deps.store, sessionId)
@@ -220,6 +214,8 @@ async function runAttachUnderAbort(
   const { startupAttempts } = context.runtimeState
   try {
     const attached = await performAttach({
+      captureConversationEvidenceLaunch: context.deps.captureConversationEvidenceLaunch,
+      expectedConversationOperationKey,
       models: priorRecord ? undefined : options.catalogModels,
       store: context.deps.store,
       adapter: context.deps.adapter,

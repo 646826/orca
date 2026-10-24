@@ -91,6 +91,7 @@ export function recordingSink(): StructuredAgentSessionEventSink {
 export async function acquiredCodexAdapter(input: {
   codex: ReturnType<typeof fakeCodexAppServer>
   settlements: LateSettlement[]
+  correlations?: LateSettlement[]
   sink?: StructuredAgentSessionEventSink
   requestTimeoutMs?: number
 }): Promise<CodexStructuredSessionAdapter> {
@@ -105,7 +106,13 @@ export async function acquiredCodexAdapter(input: {
     openConnection: input.codex.openConnection,
     readProcessStartTime: async () => 1_700_000_000_000,
     now: () => 1_700_000_000_500,
-    onDispatchSettledLate: (settlement) => input.settlements.push(settlement),
+    onDispatchSettledLate: (settlement) => {
+      if ('state' in settlement && settlement.state === 'origin-correlated') {
+        input.correlations?.push(settlement)
+      } else {
+        input.settlements.push(settlement)
+      }
+    },
     ...(input.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: input.requestTimeoutMs })
   })
   const identity: AgentSessionJournalIdentity = {

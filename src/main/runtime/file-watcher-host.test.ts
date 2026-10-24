@@ -1,3 +1,4 @@
+import { compareWorkspaceWatchObservation } from './workspace-watch-observation'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FsChangeEvent } from '../../shared/filesystem-entry-types'
 import type {
@@ -28,6 +29,7 @@ vi.mock('../ipc/parcel-watcher-process', () => ({
 }))
 
 import {
+  readRuntimeWorkspaceWatchObservation,
   closeFileExplorerWatcherInWatcherProcess,
   getRuntimeRootWatchWaiterCountForTest,
   resetRuntimeRootWatchersForTest,
@@ -108,6 +110,34 @@ describe('watchFileExplorerInWatcherProcess', () => {
     expect(secondDispose).toBe(firstDispose)
     await firstDispose
     expect(watch.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('passively observes exact-root events and loses continuity on interruption or close', async () => {
+    expect(readRuntimeWorkspaceWatchObservation('/folder', 'scope').continuity).toBe('unknown')
+    expect(subscribeViaRuntimeWatcherProcessMock).not.toHaveBeenCalled()
+    const watch = installSuccessfulWatch()
+    const dispose = await watchFileExplorerInWatcherProcess('/folder', vi.fn())
+    const captured = readRuntimeWorkspaceWatchObservation('/folder', 'scope')
+    expect(readRuntimeWorkspaceWatchObservation('/folder/nested', 'scope').continuity).toBe(
+      'unknown'
+    )
+    watch.callback(null, [{ type: 'update', path: '/folder/.git/config' }])
+    expect(
+      compareWorkspaceWatchObservation(
+        captured,
+        readRuntimeWorkspaceWatchObservation('/folder', 'scope')
+      )
+    ).toBe('observed-change')
+    watch.hooks.onInterruption?.()
+    expect(
+      compareWorkspaceWatchObservation(
+        captured,
+        readRuntimeWorkspaceWatchObservation('/folder', 'scope')
+      )
+    ).toBe('unknown')
+    await dispose()
+    expect(readRuntimeWorkspaceWatchObservation('/folder', 'scope').continuity).toBe('unknown')
+    expect(watch.unsubscribe).toHaveBeenCalledOnce()
   })
 
   it('joins root-scoped cleanup to an in-progress subscriber teardown', async () => {

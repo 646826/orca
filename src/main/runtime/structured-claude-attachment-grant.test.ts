@@ -6,6 +6,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import type * as LaunchResolution from '../claude/claude-structured-launch-resolution'
 
 type GrantDeps = { attachmentDirectory?: string }
@@ -35,8 +39,12 @@ import {
 
 let stateDirectory: string | null = null
 
+let admission: ProfileStateRuntimeAdmission | undefined
+
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (stateDirectory) {
     await rm(stateDirectory, { recursive: true, force: true })
     stateDirectory = null
@@ -46,6 +54,7 @@ afterEach(async () => {
 describe("structured Claude's read grant for chat attachments", () => {
   it("hands the store root from the runtime to Claude's part of the launch", async () => {
     stateDirectory = await mkdtemp(join(tmpdir(), 'orca-attachment-grant-'))
+    admission = acquireProfileStateRuntimeAdmission(stateDirectory)
     const directory = stateDirectory
     await ensureStructuredAgentSessionHost({
       logger: createStructuredAgentSessionLogger(),

@@ -35,7 +35,10 @@ import { getExplicitWorktreeIdSelector } from '../../runtime-worktree-selection'
 export const FIRST_SURFACE_PLACEMENT_WAIT_MS = 500
 
 export abstract class OrcaRuntimeWithRestoredTerminalPlacement extends OrcaRuntimeWithAutomationOperations {
-  abstract applyLayoutCommand(command: WindowLayoutCommand): Promise<LayoutApplyReply>
+  abstract applyLayoutCommand(
+    command: WindowLayoutCommand,
+    beforeMutation?: () => void
+  ): Promise<LayoutApplyReply>
   /** Shows a restored pane whose terminal is gone as sleeping, unless it already has a status. */
   protected abstract notePaneSleeping(paneKey: string): void
 

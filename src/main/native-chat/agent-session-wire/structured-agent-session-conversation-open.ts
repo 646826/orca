@@ -1,3 +1,4 @@
+import { createConversationOriginRowHook } from '../conversations/conversation-origin-rows'
 // The one way a conversation's journal becomes open on this host: for a send, for a reader, and
 // for an attach that finds none open.
 //
@@ -102,7 +103,11 @@ export async function openStructuredAgentSessionConversationJournal(
     expectedRuntimeFence: fence
   })
   const identity = journalIdentityFor(record, params)
-  const journal = await openAgentSessionJournal({ identity, database: deps.journalDatabase })
+  const journal = await openAgentSessionJournal({
+    identity,
+    database: deps.journalDatabase,
+    requiredInTransaction: createConversationOriginRowHook(sessionId)
+  })
   try {
     // A handed-over row found here is only doubt, which provider history decides under a won lease.
     await journal.markPendingSubmissionsUnknown(fence)

@@ -1,3 +1,7 @@
+import {
+  conversationTabMutationAdmission,
+  requireConversationTabMutationCapability
+} from './conversation-tab-gate'
 import { withSpan } from '../../../observability/tracer'
 import { SESSION_TAB_CLOSE_INTENT_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { defineMethod } from '../core'
@@ -26,6 +30,7 @@ export const SESSION_TAB_CLOSE_METHODS = [
           context.clientCapabilities
         )
         assertProjectedSessionTabVisible(visible, params.tabId)
+        await requireConversationTabMutationCapability(context, raw, params.tabId)
         assertAgentSessionTabDestructiveMutationSupported(
           raw,
           params.tabId,
@@ -55,6 +60,7 @@ export const SESSION_TAB_CLOSE_METHODS = [
             params.tabId,
             {
               reason: 'user',
+              assertAgentSessionMutation: await conversationTabMutationAdmission(context),
               // Why explicit reason only: a reasonless legacy close never carried a confirmation.
               ...(params.force && params.reason !== undefined ? { force: true } : {}),
               ...(context.pairedDeviceId ? { clientNavigationId: context.pairedDeviceId } : {})
@@ -105,6 +111,7 @@ export const SESSION_TAB_CLOSE_METHODS = [
           context.clientCapabilities
         )
         assertProjectedSessionTabVisible(visible, params.tabId)
+        await requireConversationTabMutationCapability(context, raw, params.tabId)
         assertAgentSessionTabDestructiveMutationSupported(
           raw,
           params.tabId,
@@ -120,6 +127,7 @@ export const SESSION_TAB_CLOSE_METHODS = [
             params.tabId,
             {
               reason: params.reason,
+              assertAgentSessionMutation: await conversationTabMutationAdmission(context),
               expectedPublicationEpoch: params.publicationEpoch,
               expectedTerminalHandle: params.terminal,
               ...(context.pairedDeviceId ? { clientNavigationId: context.pairedDeviceId } : {})

@@ -1,3 +1,4 @@
+import { beginConversationTabClose } from './conversation-tab-close'
 import type { TabsSlice, TabsSliceGet, TabsSliceSet } from './tabs-slice-contract'
 import { collapseGroupLayout } from '../../../../../shared/workspace-layout/tab-group-layout-tree'
 import {
@@ -63,6 +64,10 @@ export function createTabsCloseActions(
       const dedupedGroupOrder = dedupeTabOrder(groupOrder)
       const remainingOrder = dedupeTabOrder(dedupedGroupOrder.filter((id) => id !== tabId))
       const wasLastTab = remainingOrder.length === 0
+      const landIfEmptied = () => landOnEmptiedWorktree(set, get, worktreeId)
+      if (tab.contentType === 'conversation') {
+        return beginConversationTabClose(get, tab, landIfEmptied, opts?.preserveWorktreeSelection)
+      }
       if (tab.contentType === 'agent-session') {
         const provisional =
           shouldRetainStructuredAgentSessionLaunchTab(worktreeId, tab.entityId) ||
@@ -208,7 +213,7 @@ export function createTabsCloseActions(
           // An editor close lands through closeFile, which owns its content.
           ...(isEditorTabContentType(tab.contentType) || opts?.preserveWorktreeSelection
             ? {}
-            : { landIfEmptied: () => landOnEmptiedWorktree(set, get, worktreeId) }),
+            : { landIfEmptied }),
           // A chat tab owns its markers; nothing else retires them.
           ...(tab.contentType === 'agent-session'
             ? {

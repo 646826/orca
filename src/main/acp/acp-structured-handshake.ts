@@ -1,3 +1,6 @@
+import { acpConversationCapabilities } from './acp-conversation-capabilities'
+import { startAcpEvidenceServer, type AcpConversationEvidence } from './acp-conversation-evidence'
+import { createLegacyProviderTimelineIdentityScheme } from '../native-chat/agent-session-timeline/provider-timeline-identity'
 // Suppress replayed history during reattach; preserve context usage.
 
 import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
@@ -24,6 +27,7 @@ import {
 } from './acp-structured-child'
 
 type AcpHandshakeInput = {
+  evidence?: AcpConversationEvidence
   acquire: StructuredAgentSessionAcquireInput
   deps: AcpStructuredSessionAdapterDeps
   generation: string
@@ -58,6 +62,10 @@ export async function initializeAcpStructuredSession(
     advertised: (initialized.authMethods ?? []).map((method) => method.id),
     env: launch.env
   })
+  const mcpServers = input.evidence
+    ? [await startAcpEvidenceServer(input.evidence, initialized, spec.agent)]
+    : []
+  assertStarting()
   const setup = { authMethodId, resumePreference: spec.resumePreference }
   const resume = launch.resume
   let started: Awaited<ReturnType<AcpStructuredConnection['start']>> | null = null
@@ -69,7 +77,7 @@ export async function initializeAcpStructuredSession(
     try {
       started = await connection.start({
         cwd: launch.cwd,
-        mcpServers: [],
+        mcpServers,
         sessionId: resume.sessionId,
         ...setup
       })
@@ -88,7 +96,7 @@ export async function initializeAcpStructuredSession(
   if (!started || !liveLane) {
     liveLane?.dispose()
     input.lanes.clear()
-    started = await connection.start({ cwd: launch.cwd, mcpServers: [], ...setup })
+    started = await connection.start({ cwd: launch.cwd, mcpServers, ...setup })
     assertStarting()
     liveLane = input.lanes.create(started.sessionId)
   }
@@ -144,6 +152,23 @@ export async function initializeAcpStructuredSession(
   }
   assertStarting()
   Object.assign(child, {
+    contextDeliveryObservation: {
+      agent: spec.agent,
+      protocol: `acp-${initialized.protocolVersion}`,
+      version: initialized.agentInfo?.version ?? null,
+      nativeSessionId: started.sessionId,
+      acquisitionGeneration: child.acquisitionGeneration,
+      fence: child.fence,
+      launch: {
+        command: launch.command,
+        cwd: launch.cwd,
+        permission: launch.fullAccess ? 'full-access' : 'ask'
+      },
+      options: {},
+      initialized: true,
+      closed: false,
+      resume: initialized.agentCapabilities?.loadSession === true
+    },
     childStops,
     lane: liveLane,
     turns: new AcpStructuredTurns({
@@ -152,11 +177,44 @@ export async function initializeAcpStructuredSession(
       lane: liveLane,
       agentName,
       now,
-      settle: onSettled
+      settle: (settlement) => {
+        if ('originCorrelation' in settlement && settlement.originCorrelation === 'exact') {
+          // A correlated prompt response establishes this local prompt's causal identity;
+          // the separate settlement still supplies the acceptance evidence.
+          deps.onDispatchSettledLate?.({
+            state: 'origin-correlated',
+            sessionId,
+            clientMessageId: settlement.clientMessageId,
+            fence: child.fence,
+            turnIdentity: createLegacyProviderTimelineIdentityScheme({
+              agent: spec.agent,
+              sessionId
+            }).turn({
+              namespace: started.sessionId,
+              key: { source: 'provider', value: `prompt:${settlement.clientMessageId}` }
+            })
+          })
+        }
+        onSettled(settlement)
+      }
     })
   })
   if (!isAcpReadySession(child)) {
     throw new Error('ACP session did not open')
+  }
+  if (input.evidence) {
+    const capabilities = acpConversationCapabilities(child)
+    if (capabilities.state !== 'verified') {
+      throw new Error('ACP evidence owner unverified')
+    }
+    input.evidence.permit.registration.confirm({
+      nativeSessionId: started.sessionId,
+      acquisitionGeneration: child.acquisitionGeneration,
+      runtimeFence: child.fence,
+      baseCapabilityFingerprint: capabilities.runtimeFingerprint,
+      launchFingerprint: input.evidence.launchFingerprint,
+      transport: 'acp-http-mcp'
+    })
   }
   return {
     link,

@@ -27,7 +27,7 @@ import {
 } from './structured-agent-session-provider-support'
 import { performSend } from './structured-agent-session-turns'
 import { observedReceipt } from './structured-agent-session-operation-settlement'
-import { attachStructuredAgentSession } from './structured-agent-session-attach-orchestration'
+import { attachStructuredAgentSessionForClient } from './structured-agent-session-client-attach'
 import { readAgentSessionHydrationPage } from './agent-session-history-page'
 import { resolveAgentSessionReplayOutcome } from './structured-agent-session-replay-outcome'
 import type { AgentSessionExecutionOptions } from '../../../shared/agent-session-execution-options'
@@ -289,8 +289,8 @@ export function structuredAgentSessionEntryDelegates(
     attach: (
       caller: StructuredAgentSessionCaller,
       params: AgentSessionAttachParams,
-      options?: Parameters<typeof attachStructuredAgentSession>[3]
-    ) => attachStructuredAgentSession(context(), caller.callerKey, params, options),
+      options?: Parameters<typeof attachStructuredAgentSessionForClient>[3]
+    ) => attachStructuredAgentSessionForClient(context(), caller, params, options),
     create: (
       caller: StructuredAgentSessionCaller,
       params: AgentSessionAttachParams,

@@ -29,6 +29,22 @@ const configOptions = [
 ]
 
 describe('ACP session options', () => {
+  it('fingerprints mode choices without exposing provider prose', () => {
+    const options = new AcpStructuredOptions()
+    const mode = {
+      id: 'mode',
+      name: 'Provider prose',
+      category: 'mode',
+      type: 'select' as const,
+      currentValue: 'ask',
+      options: []
+    }
+    options.adoptSession({ configOptions: [mode] })
+    expect(options.contextDeliveryChoices()).toEqual({ mode: 'ask' })
+    options.adoptConfigOptions([{ ...mode, currentValue: 'accept-edits' }])
+    expect(options.contextDeliveryChoices()).toEqual({ mode: 'accept-edits' })
+  })
+
   it('keeps the session’s picks out of the catalog facts', () => {
     const options = new AcpStructuredOptions()
     options.adoptSession({ configOptions })

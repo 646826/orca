@@ -536,6 +536,7 @@ export type AgentJournalSubmission = {
 /** Durable answer to "did my send land?", keyed by client message id. Only an
  *  `accepted` dispatch mints one, and it outlives the journal tail. */
 export type AgentJournalAcceptanceReceipt = {
+  originCorrelation?: 'exact'
   clientMessageId: string
   providerItemId: string
   cursor: AgentJournalCursor

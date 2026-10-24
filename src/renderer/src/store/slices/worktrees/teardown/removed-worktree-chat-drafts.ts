@@ -1,3 +1,5 @@
+import { cancelConversationTabLifetimes } from '@/runtime/conversation-tab-lifetime'
+import { forgetConversationEntriesOwnedBy } from '@/components/native-chat/native-chat-conversation-entry-state'
 import type { AppState } from '../../../types'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import type { NativeChatComposerDraftOwner } from '@/components/native-chat/native-chat-composer-draft-storage'
@@ -61,6 +63,11 @@ export function captureWorkspaceChatDraftKeys(
  *  way go too, or one settling later would write a draft back that nothing could delete. */
 export function deleteWorkspaceChatDrafts(keys: WorkspaceChatDraftKeys): void {
   for (const owner of keys.owners) {
+    cancelConversationTabLifetimes(
+      new Set([owner.workspaceId]),
+      (_workspace, host) => host === owner.executionHostId
+    )
+    forgetConversationEntriesOwnedBy(owner)
     deleteNativeChatComposerDraftsOwnedBy(owner)
     dropNativeChatPendingAttachmentsOwnedBy(owner)
   }

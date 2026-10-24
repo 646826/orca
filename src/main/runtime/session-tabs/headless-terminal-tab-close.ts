@@ -1,11 +1,7 @@
 import type { RuntimeHeadlessTabProperties as HeadlessTabPropertiesMethods } from './headless-tab-properties'
-import type { RuntimeHeadlessTabGroups as HeadlessTabGroupsMethods } from './headless-tab-group-moves'
-import type { OrcaRuntimeWithPersistHeadlessTerminalTitle as PersistHeadlessTerminalTitleMethods } from '../workspaces/workspace-file-session-targets'
-import { OrcaRuntimeWithMainLayoutTabMoves } from './main-layout-session-tab-move'
+import { OrcaRuntimeWithMobileSessionTabMoves } from './mobile-session-tab-moves'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
 import type {
-  RuntimeMobileSessionTabMove,
-  RuntimeMobileSessionTabMoveResult,
   RuntimeMobileSessionTabsSnapshot,
   RuntimeMobileSessionTerminalTab
 } from '../../../shared/runtime-types'
@@ -18,18 +14,10 @@ import type { TerminalPaneLayoutNode } from '../../../shared/terminal-tab-types'
 import type { RuntimeTerminalRename } from '../../../shared/runtime-terminal-contracts'
 import type { RuntimeSessionTabCloseReason } from '../../../shared/runtime-session-contracts'
 
-export abstract class OrcaRuntimeWithCloseHeadlessMobileTerminalTab extends OrcaRuntimeWithMainLayoutTabMoves {
+export abstract class OrcaRuntimeWithCloseHeadlessMobileTerminalTab extends OrcaRuntimeWithMobileSessionTabMoves {
   protected abstract applyHeadlessTerminalPaneLayoutToSnapshot(
     ...args: Parameters<HeadlessTabPropertiesMethods['applyHeadlessTerminalPaneLayoutToSnapshot']>
   ): ReturnType<HeadlessTabPropertiesMethods['applyHeadlessTerminalPaneLayoutToSnapshot']>
-
-  protected abstract moveHeadlessMobileSessionTab(
-    ...args: Parameters<HeadlessTabGroupsMethods['moveHeadlessMobileSessionTab']>
-  ): ReturnType<HeadlessTabGroupsMethods['moveHeadlessMobileSessionTab']>
-
-  protected abstract normalizeMobileSessionTabOrder(
-    ...args: Parameters<PersistHeadlessTerminalTitleMethods['normalizeMobileSessionTabOrder']>
-  ): ReturnType<PersistHeadlessTerminalTitleMethods['normalizeMobileSessionTabOrder']>
 
   protected abstract persistHeadlessTerminalPaneLayout(
     ...args: Parameters<HeadlessTabPropertiesMethods['persistHeadlessTerminalPaneLayout']>
@@ -153,56 +141,6 @@ export abstract class OrcaRuntimeWithCloseHeadlessMobileTerminalTab extends Orca
     this.emitMobileSessionTabsSnapshot(nextSnapshot)
   }
 
-  async moveMobileSessionTab(
-    worktreeSelector: string,
-    move: RuntimeMobileSessionTabMove
-  ): Promise<RuntimeMobileSessionTabMoveResult> {
-    const explicitWorktreeId = this.getExplicitSessionWorktreeIdSelector(worktreeSelector)
-    const worktreeId =
-      explicitWorktreeId ?? (await this.resolveWorktreeSelector(worktreeSelector)).id
-    this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)
-    const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
-    if (!snapshot) {
-      throw new Error('tab_not_found')
-    }
-    const movedInMain = await this.moveTabInMainLayout(worktreeId, snapshot, move)
-    if (movedInMain) {
-      return movedInMain
-    }
-    if (!this.notifier?.moveSessionTab) {
-      return this.moveHeadlessMobileSessionTab(worktreeId, snapshot, move)
-    }
-    const hostTabId = this.resolveMobileSessionHostTabId(snapshot, move.tabId)
-    if (!hostTabId) {
-      throw new Error('tab_not_found')
-    }
-    const publicSnapshot = this.toMobileSessionTabsResult(snapshot)
-    const targetGroup = publicSnapshot.tabGroups?.find((group) => group.id === move.targetGroupId)
-    if (!targetGroup) {
-      throw new Error('target_group_not_found')
-    }
-
-    // Why: web clients address terminal surfaces as tab::leaf, while desktop
-    // tab grouping is owned by the outer terminal tab id.
-    if (move.kind === 'reorder') {
-      const tabOrder = this.normalizeMobileSessionTabOrder(snapshot, targetGroup, move.tabOrder)
-      if (!tabOrder.includes(hostTabId)) {
-        throw new Error('invalid_tab_order')
-      }
-      this.notifier.moveSessionTab(worktreeId, {
-        ...move,
-        tabId: hostTabId,
-        tabOrder
-      })
-      return { moved: true }
-    }
-    this.notifier.moveSessionTab(worktreeId, {
-      ...move,
-      tabId: hostTabId
-    })
-    return { moved: true }
-  }
-
   // Why: pane geometry inside a tab (split ratios, expanded pane, pane titles)
   // is host-authoritative for remote-server tabs but had no push path, so a
   // client divider-drag / expand / pane-rename reverted on the next snapshot.
@@ -217,7 +155,8 @@ export abstract class OrcaRuntimeWithCloseHeadlessMobileTerminalTab extends Orca
       chatLeafId?: string | null
       titlesByLeafId?: Record<string, string>
       renamedLeafIds?: string[]
-    }
+    },
+    assertAgentSessionMutation?: (sessionId: string) => void
   ): Promise<{ updated: true }> {
     const explicitWorktreeId = this.getExplicitSessionWorktreeIdSelector(worktreeSelector)
     const worktreeId =
@@ -228,14 +167,26 @@ export abstract class OrcaRuntimeWithCloseHeadlessMobileTerminalTab extends Orca
     const hostTabId = snapshot
       ? (this.resolveMobileSessionHostTabId(snapshot, args.tabId) ?? args.tabId)
       : args.tabId
+    const assertMutation = () => {
+      if (!assertAgentSessionMutation) {
+        return
+      }
+      const tab = snapshot?.tabs.find((row) => row.id === hostTabId)
+      if (tab?.type === 'agent-session') {
+        assertAgentSessionMutation?.(tab.sessionId)
+      }
+    }
+    assertMutation()
     // Switch point: pane names in a tab main owns are main's renames, so only geometry goes on.
     if (ORCA_LAYOUT_OWNER_IS_MAIN) {
       args = await this.nameMainPanes(worktreeId, hostTabId, args)
+      assertMutation()
     }
     // Why: when a renderer is authoritative (desktop host reached via shared
     // control), it owns pane geometry and republishes it — a headless write here
     // would be overwritten and could fight the renderer. Only pane names, which
     // the window takes one pane at a time, are passed on to it.
+    assertMutation()
     if (this.getAvailableAuthoritativeWindow()) {
       // Why: only panes the client says it renamed; a resent map may predate the host's names.
       const renamed = new Set(args.renamedLeafIds)

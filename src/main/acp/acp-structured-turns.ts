@@ -1,3 +1,4 @@
+import { AgentSessionPreDispatchError } from '../native-chat/agent-session-wire/structured-agent-session-operation-settlement'
 // Steers wait for the active prompt to answer cancellation; agent-initiated turns accept sends directly.
 
 import {
@@ -18,15 +19,13 @@ import { ACP_COMPACT_PROMPT } from './acp-compaction-turn'
 import { AcpAgentError, AcpAuthRequiredError, AcpConnectionClosedError } from './acp-errors'
 import type { AcpStructuredConnection } from './acp-structured-connection'
 import type { AcpStructuredLane } from './acp-structured-lane'
-import type { ContentBlock } from './generated/acp-protocol.generated'
+import type { AcpStructuredSend as Send } from './acp-structured-write-authority'
 
 export type AcpDispatchSettlement = { clientMessageId: string } & (
-  | { providerIdentity: AgentJournalItemIdentity }
+  | { providerIdentity: AgentJournalItemIdentity; originCorrelation?: 'exact' }
   | ({ state: 'rejected' } & AgentJournalDispatchRejection)
   | { state: 'unknown'; reason: string }
 )
-
-type Send = { clientMessageId: string; prompt: ContentBlock[]; requestedAt: number }
 
 export type AcpStructuredTurnsDeps = {
   connection: Pick<AcpStructuredConnection, 'prompt' | 'cancel'>
@@ -43,9 +42,11 @@ export class AcpStructuredTurns {
   private steerCancelled: Send | null = null
   private readonly steers: Send[] = []
   private readonly unsettled = new Set<string>()
+  private readonly pendingWrites = new Set<Send>()
   private readonly idleWaiters = new Set<() => void>()
   private ended = false
   private stopAt: number | null = null
+  private stopGeneration = 0
 
   constructor(private readonly deps: AcpStructuredTurnsDeps) {}
 
@@ -81,6 +82,7 @@ export class AcpStructuredTurns {
   }
 
   stop(at: number): boolean {
+    this.stopGeneration += 1
     this.stopAt ??= at
     return this.withdrawSteers()
   }
@@ -129,10 +131,18 @@ export class AcpStructuredTurns {
     return { state: 'accepted', providerIdentity: null }
   }
 
-  accept(clientMessageId: string): void {
+  accept(clientMessageId: string, exact = false): void {
+    if (
+      !exact &&
+      this.active?.clientMessageId === clientMessageId &&
+      this.active.requireExactOrigin
+    ) {
+      return
+    }
     if (this.unsettled.delete(clientMessageId)) {
       this.deps.settle({
         clientMessageId,
+        ...(exact ? { originCorrelation: 'exact' as const } : {}),
         providerIdentity: { provider: 'orca', clientMessageId }
       })
     }
@@ -176,12 +186,37 @@ export class AcpStructuredTurns {
 
   private run(send: Send, promptId: string): void {
     const { lane } = this.deps
+    const stopGeneration = this.stopGeneration
     // Inject identity only for dialects that echo it on turn events.
     const meta = lane.translator.injectsPromptIdentity
       ? { promptId, requestId: promptId }
       : undefined
-    const answered = this.deps.connection.prompt(send.prompt, meta)
-    if (this.steers.length > 0) {
+    if (send.beforeWrite) {
+      this.pendingWrites.add(send)
+    }
+    const answered = this.deps.connection.prompt(
+      send.prompt,
+      meta,
+      send.beforeWrite
+        ? async (params) => {
+            try {
+              await send.beforeWrite?.(params)
+            } catch {
+              throw new AgentSessionPreDispatchError('acp-dispatch-authority-refused')
+            }
+            if (this.ended || this.active !== send || this.stopGeneration !== stopGeneration) {
+              throw new AgentSessionPreDispatchError('acp-dispatch-no-longer-current')
+            }
+          }
+        : undefined,
+      () => {
+        this.pendingWrites.delete(send)
+        if (this.steers.length > 0) {
+          this.cancelForSteer()
+        }
+      }
+    )
+    if (!send.beforeWrite && this.steers.length > 0) {
       this.cancelForSteer()
     }
     answered.then(
@@ -189,13 +224,19 @@ export class AcpStructuredTurns {
         if (this.active !== send) {
           return
         }
+        this.accept(send.clientMessageId, true)
         lane.apply(lane.translator.promptResult(send.clientMessageId, result, this.deps.now()))
-        this.accept(send.clientMessageId)
         this.finish(send)
       },
       (error: unknown) => {
         if (this.active !== send || error instanceof AcpConnectionClosedError) {
           // Connection teardown owns unknown-send settlement.
+          return
+        }
+        if (error instanceof AgentSessionPreDispatchError) {
+          this.reject(send.clientMessageId, agentSessionFailureFact('cancelled'))
+          lane.apply(lane.translator.promptFailed(send.clientMessageId, error, this.deps.now()))
+          this.finish(send)
           return
         }
         if (!(error instanceof AcpAgentError)) {
@@ -235,6 +276,7 @@ export class AcpStructuredTurns {
   }
 
   private finish(send: Send): void {
+    this.pendingWrites.delete(send)
     if (this.active === send) {
       this.active = null
     }
@@ -252,7 +294,7 @@ export class AcpStructuredTurns {
   /** Steering waits indefinitely for cancellation; Stop can still end the child. */
   private cancelForSteer(): void {
     const send = this.active
-    if (!send) {
+    if (!send || this.pendingWrites.has(send)) {
       return
     }
     this.deps.withdrawRequests()

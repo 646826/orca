@@ -14,6 +14,8 @@ import { replaceJournalEpoch } from './journal-epoch-replacement'
 import type { JournalLoad } from './journal-open'
 import type { AgentSessionJournal } from './journal-store'
 import { readJournalSessionEpoch } from './journal-row-table'
+import { pinJournalEpoch } from './journal-epoch-pins'
+import { parseJournalRow } from './journal-row-schema'
 import {
   createTrackedJournalOpener,
   openTestJournalHostDatabase,
@@ -94,6 +96,86 @@ export function registerJournalEpochReplacementTests(): void {
   })
 
   describe('journal epoch replacement', () => {
+    it('records the exact replaced boundary while retaining pinned canonical bytes', async () => {
+      const journal = await journals.open({ identity: IDENTITY, stateDirectory: root })
+      await journal.appendItem(
+        item(1),
+        { kind: 'status', text: 'removed by replacement' },
+        { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+      )
+      const before = journal.cursor()
+      const bytes = readTestJournalRows(database.db, IDENTITY.sessionId, before.epoch)
+      database.transaction((db) =>
+        pinJournalEpoch(db, {
+          ownerId: 'replacement-test',
+          sessionId: IDENTITY.sessionId,
+          epoch: before.epoch,
+          endSequence: before.sequence
+        })
+      )
+      await journal.replaceEpochItems('legacy_import', 1, [])
+      const row = readTestJournalRows(database.db, IDENTITY.sessionId, journal.epoch)[0]
+      expect(row && parseJournalRow(row.rowJson)).toMatchObject({
+        ok: true,
+        row: {
+          replacementOf: { epoch: before.epoch, endSequence: before.sequence }
+        }
+      })
+      const retained = database.db
+        .prepare(
+          'SELECT row_json FROM journal_rows WHERE session_id = ? AND epoch = ? ORDER BY seq'
+        )
+        .all(IDENTITY.sessionId, before.epoch)
+      expect(retained.map((entry) => entry.row_json)).toEqual(bytes.map((entry) => entry.rowJson))
+      expect(journal.snapshot().items).toEqual([])
+    })
+
+    it('does not claim a replacement for initial creation or empty rollover', async () => {
+      const journal = await journals.open({ identity: IDENTITY, stateDirectory: root })
+      const first = readTestJournalRows(database.db, IDENTITY.sessionId, journal.epoch)[0]
+      expect(first && JSON.parse(first.rowJson)).not.toHaveProperty('replacementOf')
+      await journal.rollEpoch('handle_forked', 1)
+      const rolled = readTestJournalRows(database.db, IDENTITY.sessionId, journal.epoch)[0]
+      expect(rolled && JSON.parse(rolled.rowJson)).not.toHaveProperty('replacementOf')
+    })
+
+    it('rejects a stale replacement snapshot without publishing or retiring evidence', () => {
+      let previous: JournalLoad | undefined
+      replace({
+        items: [],
+        onPublished: (loaded) => {
+          previous = loaded
+        }
+      })
+      if (!previous) {
+        throw new Error('missing initial state')
+      }
+      const stale = previous.state
+      replace({
+        items: [{ identity: item(2), body: { kind: 'status', text: 'new' }, ownerFence: 1 }]
+      })
+      const current = readJournalSessionEpoch(database.db, IDENTITY.sessionId)
+      expect(() =>
+        replaceJournalEpoch({
+          database,
+          identity: IDENTITY,
+          reason: 'legacy_import',
+          fence: 1,
+          items: [],
+          previous: stale,
+          queue: { cards: [], receipt: { write: () => {}, committed: () => {} } },
+          queuePause: { lifted: false, liveStop: null, reopened: false },
+          now,
+          mintEpoch: () => 'stale-attempt',
+          onPublished: () => {
+            throw new Error('published stale')
+          }
+        })
+      ).toThrow('journal replacement source changed')
+      expect(readJournalSessionEpoch(database.db, IDENTITY.sessionId)).toBe(current)
+      expect(storedRows(IDENTITY.sessionId, current ?? '')).toBe(2)
+    })
+
     it('publishes one observable replacement', () => {
       const published: JournalLoad[] = []
 

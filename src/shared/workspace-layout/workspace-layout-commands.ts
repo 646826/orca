@@ -1,3 +1,7 @@
+import {
+  openConversationTab,
+  promoteConversationTab
+} from './workspace-layout-conversation-commands'
 // applyLayoutCommand: every layout change a client can ask for, applied to the model in one step.
 // Pure and synchronous, so the runtime applies commands in arrival order on one thread.
 
@@ -58,6 +62,7 @@ const CREATES_WORKSPACE = new Set<LayoutCommand['type']>([
   'openEditorTab',
   'openBrowserTab',
   'openAgentSessionTab',
+  'openConversationTab',
   'openSimulatorTab'
 ])
 
@@ -168,6 +173,10 @@ function applyCommand(
       return setBrowserTabProfile(model, command)
     case 'openAgentSessionTab':
       return openInNewGroup(model, command, (next) => openAgentSessionTab(next, command, context))
+    case 'promoteConversationTab':
+      return promoteConversationTab(model, command)
+    case 'openConversationTab':
+      return openInNewGroup(model, command, (next) => openConversationTab(next, command, context))
     case 'startPane':
       return startPane(model, command, context)
     case 'restartPane':

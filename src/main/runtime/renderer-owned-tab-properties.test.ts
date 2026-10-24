@@ -82,3 +82,46 @@ it.each([' Renamed ', null])(
     expect(notifier.renameTerminal).toHaveBeenCalledWith('host-tab', customTitle?.trim() ?? null)
   }
 )
+
+it('checks conversation authority in the moved tab-property owner before forwarding an edit', async () => {
+  const { runtime, notifier, runtimeStore, getSession, session } = fixture()
+  runtime.syncWindowGraph(1, {
+    tabs: [],
+    leaves: [],
+    mobileSessionTabs: [
+      {
+        worktree: TEST_WORKTREE_ID,
+        publicationEpoch: 'renderer-conversation',
+        snapshotVersion: 1,
+        activeGroupId: null,
+        activeTabId: 'conversation-tab',
+        activeTabType: 'agent-session',
+        tabs: [
+          {
+            type: 'agent-session',
+            id: 'conversation-tab',
+            sessionId: 'conversation-session',
+            agent: 'codex',
+            title: 'Conversation',
+            isActive: true
+          }
+        ]
+      }
+    ]
+  })
+  const refusal = new Error('conversation-switch-frozen')
+  const guard = vi.fn(() => {
+    throw refusal
+  })
+  await expect(
+    runtime.setMobileSessionTabProps(
+      `id:${TEST_WORKTREE_ID}`,
+      { tabId: 'conversation-tab', customTitle: 'Refused title' },
+      guard
+    )
+  ).rejects.toBe(refusal)
+  expect(guard).toHaveBeenCalledWith('conversation-session')
+  expect(notifier.renameTerminal).not.toHaveBeenCalled()
+  expect(runtimeStore.setWorkspaceSession).not.toHaveBeenCalled()
+  expect(getSession()).toBe(session)
+})

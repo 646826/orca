@@ -1,3 +1,4 @@
+import { confirmClaudeConversationEvidence } from './claude-conversation-evidence-launch'
 import type {
   StructuredAgentSessionProviderOpenInput,
   StructuredAgentSessionProviderOpenResult
@@ -56,6 +57,13 @@ export async function openClaudeStructuredSession(input: {
   const result = await waitForPromiseWithSignal(opened, request.signal)
   if (sessions.get(request.sessionId) !== session || request.signal.aborted) {
     throw new Error('claude session closed before startup completed')
+  }
+  if (session.contextDeliveryObservation) {
+    session.contextDeliveryObservation.initialized = true
+  }
+  await confirmClaudeConversationEvidence(session, request.signal)
+  if (sessions.get(request.sessionId) !== session) {
+    throw new Error('Claude evidence owner changed during open')
   }
   return { link: session.link, ...result }
 }

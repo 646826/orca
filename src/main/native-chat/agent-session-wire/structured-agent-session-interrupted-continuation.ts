@@ -10,6 +10,7 @@ import {
   continuationDeps,
   RestartContinuationSupersededError,
   startStructuredAgentSessionContinuation,
+  type StructuredAgentSessionContinuationAdmission,
   type StructuredAgentSessionContinuationHost,
   type StructuredAgentSessionContinuationOutcome
 } from './structured-agent-session-restart-continuation'
@@ -48,6 +49,7 @@ export async function continueInterruptedStructuredAgentSessionTurn(
     /** The chat's restart offer, when one could be read: its words cover lost background work. */
     offer: Pick<AgentSessionResumeMarker, 'activity'> | null
     nonce: string
+    admission?: StructuredAgentSessionContinuationAdmission
   }
 ): Promise<StructuredAgentSessionInterruptedContinuationOutcome> {
   const { sessionId, turnItemId } = input
@@ -63,7 +65,7 @@ export async function continueInterruptedStructuredAgentSessionTurn(
   try {
     const started = await startStructuredAgentSessionContinuation(
       // As a send answers: a paired client's wait is shorter than an agent's start can be.
-      { ...continuationDeps(host, stillCut), answerAtAcceptance: true },
+      { ...continuationDeps(host, stillCut, input.admission), answerAtAcceptance: true },
       sessionId,
       input.offer ?? {},
       continuationId
@@ -101,15 +103,19 @@ export function createInterruptedContinuation(
   readOffers: () => Promise<readonly AgentSessionResumeMarker[]>
 ): (
   sessionId: string,
-  turnItemId: string
+  turnItemId: string,
+  admission?: StructuredAgentSessionContinuationAdmission
 ) => Promise<StructuredAgentSessionInterruptedContinuationOutcome> {
-  return async (sessionId, turnItemId) => {
+  return async (sessionId, turnItemId, admission) => {
+    admission?.assertMutationSupported?.(sessionId)
     const offers = await withTimeout(
       readOffers().catch(() => []),
       OFFER_READ_TIMEOUT_MS,
       []
     )
+    admission?.assertMutationSupported?.(sessionId)
     return continueInterruptedStructuredAgentSessionTurn(host, {
+      admission,
       sessionId,
       turnItemId,
       offer: offers.find((offer) => offer.sessionId === sessionId) ?? null,

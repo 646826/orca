@@ -54,6 +54,9 @@ export function useMobileSessionTabActionSheetOpener(args: {
   } = args
   return useCallback(
     (tab: MobileSessionTab) => {
+      if (tab.type === 'conversation') {
+        return
+      }
       if (tab.type === 'terminal') {
         if (typeof tab.terminal !== 'string') {
           return

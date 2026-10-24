@@ -23,7 +23,8 @@ describe('Claude structured dispatch admission', () => {
     const aUuid = session.dispatchWaiters[0]!.sentUuid
     expect(resolveClaudeReplayTurn(session, userReplayFrame(aUuid, 'a'))).toEqual({
       requestedAt: 100,
-      clientMessageId: 'client-a'
+      clientMessageId: 'client-a',
+      originCorrelation: 'exact'
     })
 
     await dispatchClaudeTurn(session, {
@@ -40,11 +41,13 @@ describe('Claude structured dispatch admission', () => {
 
     expect(resolveClaudeReplayTurn(session, userReplayFrame(b!.sentUuid, 'b'))).toEqual({
       requestedAt: 200,
-      clientMessageId: 'client-b'
+      clientMessageId: 'client-b',
+      originCorrelation: 'exact'
     })
     expect(resolveClaudeReplayTurn(session, userReplayFrame(c!.sentUuid, 'c'))).toEqual({
       requestedAt: 300,
-      clientMessageId: 'client-c'
+      clientMessageId: 'client-c',
+      originCorrelation: 'exact'
     })
   })
 
@@ -80,6 +83,7 @@ describe('Claude structured dispatch admission', () => {
       )
       expect(settled).toHaveBeenLastCalledWith({
         clientMessageId: 'client-2',
+        originCorrelation: 'exact',
         providerIdentity: { provider: 'claude', sessionId: 'provider-session', uuid: queuedUuid }
       })
       expect(session.dispatchWaiters).toHaveLength(0)

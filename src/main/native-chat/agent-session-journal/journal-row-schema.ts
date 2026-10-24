@@ -1,3 +1,4 @@
+import { hasValidJournalReplacementBoundary } from './journal-epoch-replacement-boundary'
 import type { JournalItemEcho } from './journal-item-echo'
 // Persisted journal row shapes plus read-time upcasting.
 //
@@ -73,6 +74,9 @@ export type JournalEpochRow = JournalRowBase & {
   providerHandle: AgentSessionJournalProviderHandle
   /** Original adoption, restated atomically when a same-conversation replacement retires it. */
   historyOrigin?: unknown
+  /** Exact retired snapshot replaced by this full item-set publication. Absent on rollover
+   * and older writers; absence never proves that omitted archived items were removed. */
+  replacementOf?: { epoch: string; endSequence: number }
 }
 
 export const AGENT_JOURNAL_EPOCH_REASONS = [
@@ -196,6 +200,7 @@ export type JournalDispatchRow = JournalRowBase & {
   state: AgentJournalDispatchState
   /** Provider item identity adopted on accept. */
   providerItemId: string | null
+  originCorrelation?: 'exact'
   reason: string | null
   /** On `pending`: the turn the message was handed into, which becomes its row's scope. */
   turnScope?: AgentJournalTurnScope
@@ -350,7 +355,11 @@ const ROW_CONTENT_CHECK_BY_KIND: Record<
   (record: Record<string, unknown>) => AgentJournalContentVerdict
 > = {
   epoch: (record) =>
-    fieldsContent(typeof record.reason === 'string' && isPlainObject(record.providerHandle)),
+    fieldsContent(
+      typeof record.reason === 'string' &&
+        isPlainObject(record.providerHandle) &&
+        hasValidJournalReplacementBoundary(record.replacementOf, record.epoch)
+    ),
   item: (record) =>
     combinedContent(
       fieldsContent(typeof record.itemId === 'string' && Number.isInteger(record.revision)),

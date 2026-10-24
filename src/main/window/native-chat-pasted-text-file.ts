@@ -14,6 +14,7 @@ export type SavePastedTextAsFileArgs = {
   /** With `agentSessionAttachment`: the paired server whose chat stores the file. */
   runtimeEnvironmentId?: string | null
   agentSessionAttachment?: AgentSessionAttachmentClipboardTarget
+  localAttachmentOwner?: { sessionId: string }
 }
 
 export async function savePastedTextAsFile(
@@ -40,5 +41,5 @@ export async function savePastedTextAsFile(
   if (!store) {
     throw new Error('The chat attachment store is not ready.')
   }
-  return store.storeFile(name, buffer)
+  return store.storeFile(name, buffer, args.localAttachmentOwner)
 }

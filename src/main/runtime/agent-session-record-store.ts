@@ -1,8 +1,18 @@
+import { publishAgentSessionProviderHandle } from './agent-session-provider-handle-publication'
+import {
+  proveAgentSessionOwnerWithOrigin,
+  type AgentSessionOwnerProof
+} from './agent-session-owner-proof'
+import {
+  ConversationStore,
+  type ConversationDeliveryEvidenceReader,
+  type ConversationDeliveryCommit
+} from '../native-chat/conversations/conversation-store'
 /** Durable single-writer session records and their operation ledger, as rows in the host's chat
  *  journal database. */
 
 import { backfillAgentSessionPermissionModes } from './agent-session-permission-backfill'
-import { agentSessionRefusalError } from '../../shared/agent-session-wire-refusals'
+import { mutateAgentSessionStoreRecord } from './agent-session-store-draft'
 import { createAgentSessionConversationReceipts } from './agent-session-conversation-receipts'
 import { pinAgentSessionRecordLaunchDirectory } from './agent-session-record-launch-directory'
 import {
@@ -27,7 +37,6 @@ import {
   retireAgentSessionClaimKey
 } from './agent-session-claim-key-retention'
 import type { AgentSessionOwnerProbe } from '../../shared/agent-session-lease-adjudication'
-import type { AgentSessionProviderHandleLink } from '../../shared/agent-session-provider-handle'
 import {
   agentSessionScopeKey,
   type AgentSessionExecutionLocation,
@@ -37,7 +46,6 @@ import {
 import {
   commitAgentSessionProcessIdentity,
   evictAgentSessionOwner,
-  proveAgentSessionOwner,
   type AgentSessionProcessIdentityCommit
 } from './agent-session-lease-transitions'
 import {
@@ -90,7 +98,8 @@ export class AgentSessionRecordStore {
 
   private constructor(
     private readonly transactions: AgentSessionStoreTransactions,
-    readonly hostId: string
+    readonly hostId: string,
+    readonly conversations: ConversationStore
   ) {
     this.founding = createAgentSessionFoundingStore(transactions, this.firstRecordListeners)
     this.conversationReceipts = createAgentSessionConversationReceipts(transactions)
@@ -100,10 +109,21 @@ export class AgentSessionRecordStore {
   static open(args: {
     journalDatabase: JournalHostDatabase
     hostId: string
+    conversationDeliveryEvidence?: ConversationDeliveryEvidenceReader
+    conversationDeliveryCommit?: ConversationDeliveryCommit
   }): AgentSessionRecordStore {
     const rows = loadAgentSessionStoreRows(args.journalDatabase.db)
     const transactions = new AgentSessionStoreTransactions(args.journalDatabase, rows, args.hostId)
-    return new AgentSessionRecordStore(transactions, args.hostId)
+    return new AgentSessionRecordStore(
+      transactions,
+      args.hostId,
+      new ConversationStore(
+        args.journalDatabase,
+        transactions,
+        args.conversationDeliveryEvidence,
+        args.conversationDeliveryCommit
+      )
+    )
   }
 
   private get state(): AgentSessionStoreState {
@@ -113,6 +133,12 @@ export class AgentSessionRecordStore {
   /** A newer Orca wrote the database: every read answers, and every write is refused. */
   get readOnly(): boolean {
     return this.transactions.readOnly
+  }
+
+  hasOperationInOrder(callerKey: string, operationId: string): Promise<boolean> {
+    return this.transactions.readInOrder((state) =>
+      state.operations.has(agentSessionOperationKey(callerKey, operationId))
+    )
   }
 
   backfillChatPermissionModes = (ranWithFullAccess: (provider: string) => boolean): Promise<void> =>
@@ -145,8 +171,16 @@ export class AgentSessionRecordStore {
    * Persist the user-visible tab reference separately from the rollback-sensitive profile tabs.
    * Showing keeps a tab the session already has; `tabId` puts a hidden one back under its old id.
    */
-  setSessionTabVisibility(sessionId: string, visible: boolean, tabId?: string): Promise<void> {
-    return this.transact((draft) => setAgentSessionTabVisibility(draft, sessionId, visible, tabId))
+  setSessionTabVisibility(
+    sessionId: string,
+    visible: boolean,
+    tabId?: string,
+    assertMutationSupported?: () => void
+  ): Promise<void> {
+    return this.transact((draft) => {
+      assertMutationSupported?.()
+      setAgentSessionTabVisibility(draft, sessionId, visible, tabId)
+    })
   }
 
   /** Shows each session that still has a record, in one write: an index written part way would
@@ -197,23 +231,8 @@ export class AgentSessionRecordStore {
   commitProcessIdentity = (args: AgentSessionProcessIdentityCommit): Promise<AgentSessionRecord> =>
     this.mutate(args.sessionId, (record) => commitAgentSessionProcessIdentity({ ...args, record }))
 
-  async proveOwner(args: {
-    sessionId: string
-    fence: number
-    link?: AgentSessionProviderHandleLink
-    now: number
-    leaseTtlMs?: number
-  }): Promise<AgentSessionRecord> {
-    return this.mutate(args.sessionId, (record) =>
-      proveAgentSessionOwner({
-        record,
-        fence: args.fence,
-        ...(args.link ? { link: args.link } : {}),
-        now: args.now,
-        leaseTtlMs: args.leaseTtlMs ?? AGENT_SESSION_LEASE_TTL_MS
-      })
-    )
-  }
+  proveOwner = (args: AgentSessionOwnerProof): Promise<AgentSessionRecord> =>
+    proveAgentSessionOwnerWithOrigin(this.transactions, args, AGENT_SESSION_LEASE_TTL_MS)
 
   /** Settle the failed attach and its reservation in one durable transaction. */
   settleFailedAcquisition = (args: AgentSessionFailedAcquisitionSettlement) =>
@@ -240,6 +259,9 @@ export class AgentSessionRecordStore {
   }): Promise<AgentSessionRecord> {
     return this.mutate(args.sessionId, (record) => evictAgentSessionOwner({ ...args, record }))
   }
+
+  publishProviderHandle = (input: Parameters<typeof publishAgentSessionProviderHandle>[1]) =>
+    publishAgentSessionProviderHandle(this.transactions, input)
 
   transitionHandoff = (
     sessionId: string,
@@ -309,8 +331,14 @@ export class AgentSessionRecordStore {
   readCommandReceipt = (...args: Parameters<AgentSessionStoreTransactions['readCommandReceipt']>) =>
     this.transactions.readCommandReceipt(...args)
 
-  replaceSessionOptions = (args: AgentSessionOptionsReplacement): Promise<AgentSessionRecord> =>
-    this.mutate(args.sessionId, (record) => replaceAgentSessionRecordOptions(record, args))
+  replaceSessionOptions = (
+    args: AgentSessionOptionsReplacement,
+    assertMutationSupported?: () => void
+  ): Promise<AgentSessionRecord> =>
+    this.mutate(args.sessionId, (record) => {
+      assertMutationSupported?.()
+      return replaceAgentSessionRecordOptions(record, args)
+    })
 
   /** One options revision from `agent-session-record-options`, decided against the record this
    *  ordered write holds. */
@@ -323,22 +351,11 @@ export class AgentSessionRecordStore {
     await this.transact((draft) => retireAgentSessionClaimKey(draft, keyId, now))
   }
 
-  private async mutate(
+  private mutate = async (
     sessionId: string,
     apply: (record: AgentSessionRecord) => AgentSessionRecord
-  ): Promise<AgentSessionRecord> {
-    return this.transact((draft) => {
-      const record = draft.records.get(sessionId)
-      if (!record) {
-        throw draft.unreadableRecords.has(sessionId)
-          ? agentSessionRefusalError('execution_owner_reconciling', { reason: 'recordUnreadable' })
-          : agentSessionRefusalError('agent_session_identity_required', { reason: 'recordMissing' })
-      }
-      const next = apply(record)
-      draft.records.set(sessionId, next)
-      return next
-    })
-  }
+  ): Promise<AgentSessionRecord> =>
+    this.transact((draft) => mutateAgentSessionStoreRecord(draft, sessionId, apply))
 
   /** Told, once committed, of each session a transaction wrote a proof of death for — whichever
    *  transition wrote it, since every one lands here. Must not throw. */
@@ -359,28 +376,10 @@ export class AgentSessionRecordStore {
     apply: (draft: AgentSessionStoreState) => T,
     options?: { inMemoryWhenReadOnly?: boolean }
   ): Promise<T> => {
-    let proven: string[] = []
-    let heldBefore = true
-    const result = await this.transactions.transact((draft) => {
-      heldBefore = this.holdsRecords()
-      if (this.deathEvidenceListeners.size === 0) {
-        return apply(draft)
-      }
-      const before = new Map(
-        [...draft.records].map(([id, record]) => [id, record.lease.deathEvidence])
-      )
-      const applied = apply(draft)
-      proven = [...draft.records]
-        .filter(([id, { lease }]) => lease.deathEvidence && lease.deathEvidence !== before.get(id))
-        .map(([id]) => id)
-      return applied
-    }, options)
-    for (const sessionId of proven) {
-      this.deathEvidenceListeners.forEach((listener) => listener(sessionId))
-    }
-    if (!heldBefore && this.holdsRecords()) {
-      this.firstRecordListeners.forEach((listener) => listener())
-    }
-    return result
+    return this.transactions.transactWithLifecycleNotifications(apply, {
+      ...options,
+      deathEvidenceListeners: this.deathEvidenceListeners,
+      firstRecordListeners: this.firstRecordListeners
+    })
   }
 }

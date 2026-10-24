@@ -1,3 +1,4 @@
+import type { NativeChatAgentSwitchPickerProps } from './NativeChatAgentSwitchPicker'
 import type { CaptureStructuredAgentSessionPresentation } from './use-structured-agent-session-mutate'
 import type { StructuredAgentSessionSendRequest } from './structured-agent-session-send-slot'
 import type { NativeChatComposerNotice } from './native-chat-composer-notice'
@@ -83,6 +84,7 @@ export type NativeChatOptimisticSendOutcome = {
 }
 
 export type NativeChatComposerProps = {
+  agentSwitch?: NativeChatAgentSwitchPickerProps
   /** Tab hosting the agent; used to resolve the live ptyId + runtime settings. */
   terminalTabId: string
   /** Stable split-leaf identity; unlike a PTY id, this survives reconnects. */

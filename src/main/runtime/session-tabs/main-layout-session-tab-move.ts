@@ -55,7 +55,8 @@ export abstract class OrcaRuntimeWithMainLayoutTabMoves extends OrcaRuntimeWithM
   protected async moveTabInMainLayout(
     worktreeId: string,
     shown: RuntimeMobileSessionTabsSnapshot,
-    move: RuntimeMobileSessionTabMove
+    move: RuntimeMobileSessionTabMove,
+    assertMutation?: () => void
   ): Promise<RuntimeMobileSessionTabMoveResult | null> {
     if (
       !ORCA_LAYOUT_OWNER_IS_MAIN ||
@@ -83,10 +84,12 @@ export abstract class OrcaRuntimeWithMainLayoutTabMoves extends OrcaRuntimeWithM
       if (command.type === 'splitGroup' && isSplitNoOp(workspace, command)) {
         continue
       }
-      const reply = await this.applyLayoutCommand(command)
+      assertMutation?.()
+      const reply = await this.applyLayoutCommand(command, assertMutation)
       if (!reply.ok) {
         throw new Error(reply.code === 'group_not_found' ? 'target_group_not_found' : reply.code)
       }
+      assertMutation?.()
       if (command.type === 'splitGroup' && reply.result.groupId) {
         this.selectSplitTab(worktreeId, workspace, command.tabId, reply.result.groupId)
       }

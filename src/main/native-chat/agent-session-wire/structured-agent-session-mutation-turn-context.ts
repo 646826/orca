@@ -1,3 +1,4 @@
+import { agentSessionRefusalError } from '../../../shared/agent-session-wire-refusals'
 // The context an admitted mutation's plan runs in, built from the request that admitted it.
 
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
@@ -6,7 +7,9 @@ import type { AgentSessionMutationRequest } from './structured-agent-session-mut
 import type { AgentSessionTurnContext } from './structured-agent-session-turns'
 
 export function mutationTurnContext<TValue>(
-  request: Omit<AgentSessionMutationRequest<TValue>, 'plan'>,
+  request: Omit<AgentSessionMutationRequest<TValue>, 'plan'> & {
+    plan?: Pick<AgentSessionMutationRequest<TValue>['plan'], 'method'>
+  },
   journal: AgentSessionJournal,
   record: AgentSessionRecord
 ): AgentSessionTurnContext {
@@ -15,6 +18,19 @@ export function mutationTurnContext<TValue>(
   const persistedOptions = request.store.getRecord(sessionId)?.options
   return {
     sessionId,
+    assertMutationSupported: () => {
+      if (
+        request.conversationMutationSupported === false &&
+        request.plan?.method !== 'agentSession.cancel' &&
+        request.plan?.method !== 'agentSession.respondTo:approval' &&
+        request.plan?.method !== 'agentSession.respondTo:question' &&
+        request.store.conversations.membership(sessionId)
+      ) {
+        throw agentSessionRefusalError('structured_agent_session_unsupported', {
+          reason: 'clientCapabilityMissing'
+        })
+      }
+    },
     journal,
     fence,
     ...(request.currentWork ? { currentWork: request.currentWork } : {}),

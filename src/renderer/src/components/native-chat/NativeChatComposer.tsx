@@ -71,6 +71,7 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
       steerQueued,
       recallSource,
       inputOwnedByCard = false,
+      agentSwitch,
       notices: chatNotices
     },
     ref
@@ -361,6 +362,7 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
 
     return (
       <NativeChatComposerField
+        agentSwitch={agentSwitch}
         draftScopeKey={draftScopeKey}
         textareaRef={textareaRef}
         draft={draft}
@@ -428,7 +430,5 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
 )
 
 export const NativeChatComposer = forwardRef<NativeChatComposerHandle, NativeChatComposerProps>(
-  function NativeChatComposer(props, ref): React.JSX.Element {
-    return <NativeChatComposerPane key={props.paneKey} {...props} ref={ref} />
-  }
+  (props, ref) => <NativeChatComposerPane key={props.paneKey} {...props} ref={ref} />
 )

@@ -1,3 +1,4 @@
+import { conversationLayoutAdmission } from './conversation-layout-gate'
 // The layout stream (design 2.4), the server snapshot read (design 6.3) and layout.apply. Paired
 // desktops may call them; a desktop relies on them only on a server advertising
 // `layout.intents.v1` (layout-intents-capability.ts). Not on the mobile allowlist.
@@ -102,7 +103,10 @@ export const LAYOUT_APPLY_METHODS = [
     name: 'layout.apply',
     permission: 'workspace',
     params: LayoutApplyParams,
-    handler: async (params, { runtime }) => runtime.applyLayoutCommand(params.command)
+    handler: async (params, context) => {
+      const admission = await conversationLayoutAdmission(context, params.command)
+      return context.runtime.applyLayoutCommand(params.command, admission)
+    }
   }),
   // A paired desktop's Reopen of held panes; main's frames, not the reply, show them start.
   defineMethod({

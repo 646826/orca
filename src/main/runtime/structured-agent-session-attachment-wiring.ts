@@ -1,3 +1,4 @@
+import { createAgentSessionUploadOwnership } from '../native-chat/agent-session-attachments/agent-session-upload-provenance'
 // Installs the chat attachment store beside the structured host, and its sweeps. The store lives in
 // the same state directory as the journal, whose database holds the claims the sweeps honor.
 
@@ -39,7 +40,13 @@ export function installAgentSessionAttachments(deps: {
     })
   }
   const attachments = new AgentSessionAttachmentStore(root, {
-    hasSession: (sessionId) => deps.store.getRecord(sessionId) !== null
+    hasSession: (sessionId) => deps.store.getRecord(sessionId) !== null,
+    ownership: createAgentSessionUploadOwnership(() => {
+      if (deps.journalDatabase.readOnly || deps.journalDatabase.isClosed) {
+        throw new Error('Chat attachment ownership store unavailable')
+      }
+      return deps.journalDatabase.db
+    })
   })
   setAgentSessionAttachmentStore(attachments)
   sweeper = startAgentSessionAttachmentSweeps(

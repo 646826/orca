@@ -290,3 +290,33 @@ function chatSurface(container: HTMLElement, tabId: string): HTMLElement {
   }
   return surface
 }
+
+vi.mock('./NativeChatConversation', () => ({
+  NativeChatConversation: ({
+    conversationId,
+    tabId
+  }: {
+    conversationId: string
+    tabId: string
+  }) => <div data-conversation={conversationId} data-conversation-tab={tabId} />
+}))
+it('routes a promoted tab to aggregate history without using its conversation ID as a native session', () => {
+  const state = createState(FIRST_TAB_ID)
+  const first = state.unifiedTabsByWorktree[WORKTREE_ID]![0]!
+  mocks.store?.setState({
+    ...state,
+    unifiedTabsByWorktree: {
+      [WORKTREE_ID]: [{ ...first, contentType: 'conversation', entityId: 'logical-conversation' }]
+    }
+  })
+  const view = render(
+    <StructuredAgentSessionPaneOverlayLayer worktreeId={WORKTREE_ID} isWorktreeActive />
+  )
+  expect(
+    view.container
+      .querySelector('[data-conversation="logical-conversation"]')
+      ?.getAttribute('data-conversation-tab')
+  ).toBe(FIRST_TAB_ID)
+  expect(view.container.querySelector('[data-chat-tab-id]')).toBeNull()
+  cleanup()
+})

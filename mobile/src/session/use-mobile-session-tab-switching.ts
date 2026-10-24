@@ -152,7 +152,7 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
         void readFileTab(tab)
         return
       }
-      if (tab.type === 'agent-session') {
+      if (tab.type === 'agent-session' || tab.type === 'conversation') {
         return
       }
       const cached = markdownDocs.get(tab.id)

@@ -148,28 +148,45 @@ describe('session-tabs streams the host ends over a live connection', () => {
     vi.useRealTimers()
   })
 
-  it('resubscribes the all-worktrees stream after an end frame and mirrors what the host creates next', async () => {
-    renderHook(() => useWebSessionTabsSync())
-    await act(settle)
-    const first = streams('session.tabs.subscribeAll')
-    expect(first).toHaveLength(1)
+  it.each(['end', 'close'] as const)(
+    'resubscribes the all-worktrees stream after %s and mirrors the replacement census',
+    async (ending) => {
+      renderHook(() => useWebSessionTabsSync())
+      await act(settle)
+      const first = streams('session.tabs.subscribeAll')
+      expect(first).toHaveLength(1)
 
-    await deliver(first[0], { id: 'e', ok: true, result: { type: 'end' }, _meta: {} })
-    expect(first[0]!.unsubscribe).toHaveBeenCalledTimes(1)
-    await waitOutRetry()
+      await (ending === 'end'
+        ? deliver(first[0], { id: 'e', ok: true, result: { type: 'end' }, _meta: {} })
+        : act(async () => {
+            first[0]!.callbacks.onClose?.()
+            await settle()
+          }))
+      expect(first[0]!.unsubscribe).toHaveBeenCalledTimes(1)
+      await waitOutRetry()
 
-    const resubscribed = streams('session.tabs.subscribeAll')
-    expect(resubscribed).toHaveLength(2)
-    await deliver(resubscribed[1], {
-      id: 'census',
-      ok: true,
-      result: { type: 'snapshots', snapshots: [terminalSnapshot(NEW_WORKTREE)] },
-      _meta: { runtimeId: 'runtime-a' }
-    })
-    expect(useAppStore.getState().tabsByWorktree[NEW_WORKTREE]?.map((tab) => tab.id)).toEqual([
-      toWebTerminalSurfaceTabId('host-tab')
-    ])
-  })
+      const resubscribed = streams('session.tabs.subscribeAll')
+      expect(resubscribed).toHaveLength(2)
+      await deliver(resubscribed[1], {
+        id: 'census',
+        ok: true,
+        result: {
+          type: 'snapshots',
+          conversationSurfacesComplete: true,
+          snapshots: [
+            {
+              ...terminalSnapshot(NEW_WORKTREE),
+              conversationSurfaces: { complete: true, surfaces: [] }
+            }
+          ]
+        },
+        _meta: { runtimeId: 'runtime-a' }
+      })
+      expect(useAppStore.getState().tabsByWorktree[NEW_WORKTREE]?.map((tab) => tab.id)).toEqual([
+        toWebTerminalSurfaceTabId('host-tab')
+      ])
+    }
+  )
 
   it('resubscribes the active-worktree stream once after an error response, on the backoff', async () => {
     renderHook(() => useWebSessionTabsSync())

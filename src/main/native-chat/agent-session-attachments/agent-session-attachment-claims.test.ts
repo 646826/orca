@@ -1,3 +1,7 @@
+import {
+  seedUploadTestSessions,
+  commitTestUploadOwner
+} from './agent-session-upload-provenance.test-fixture'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -103,6 +107,12 @@ describe('claims written with the message', () => {
   async function storeUpload(uploadId: string, name = 'shot.png'): Promise<string> {
     await mkdir(join(storeRoot, uploadId), { recursive: true })
     await writeFile(join(storeRoot, uploadId, name), 'bytes')
+    commitTestUploadOwner(openTestJournalHostDatabase(stateDirectory).db, {
+      sessionId: IDENTITY.sessionId,
+      uploadId,
+      name,
+      byteLength: 5
+    })
     return join(storeRoot, uploadId, name)
   }
 
@@ -136,6 +146,7 @@ describe('claims written with the message', () => {
 
   beforeEach(async () => {
     stateDirectory = await mkdtemp(join(tmpdir(), 'orca-attachment-claims-'))
+    await seedUploadTestSessions(stateDirectory, [IDENTITY.sessionId])
     storeRoot = agentSessionAttachmentStoreRoot(stateDirectory)
     clock = 1_000
   })

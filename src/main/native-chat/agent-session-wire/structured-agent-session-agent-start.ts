@@ -1,3 +1,4 @@
+import { captureConversationStartScope } from './structured-conversation-start-scope'
 // Giving a session its provider child back.
 //
 // Only work starts one: the delivery loop for a queued message, and the few operations that need
@@ -68,8 +69,14 @@ export type StructuredAgentSessionStartClaim = {
 export function claimStructuredAgentSessionAgent(
   context: StructuredAgentSessionAttachContext,
   sessionId: string,
-  startedFor?: string
+  startedFor?: string,
+  expectedConversationOperationKey?: string | null
 ): StructuredAgentSessionStartClaim {
+  const operationKey = captureConversationStartScope(
+    context.deps.store,
+    sessionId,
+    expectedConversationOperationKey
+  )
   const session = context.sessions.get(sessionId)
   const child = session?.child
   if (
@@ -89,7 +96,7 @@ export function claimStructuredAgentSessionAgent(
   return {
     outcome:
       context.runtimeState.startFlights.get(sessionId)?.outcome ??
-      registerStart(context, sessionId, startedFor)
+      registerStart(context, sessionId, startedFor, operationKey)
   }
 }
 
@@ -97,10 +104,16 @@ export function claimStructuredAgentSessionAgent(
 export async function startStructuredAgentSessionAgent(
   context: StructuredAgentSessionAttachContext,
   sessionId: string,
-  startedFor?: string
+  startedFor?: string,
+  expectedConversationOperationKey?: string | null
 ): Promise<StructuredAgentSessionResumeOutcome> {
   const claim = await context.serialize(sessionId, async () =>
-    claimStructuredAgentSessionAgent(context, sessionId, startedFor)
+    claimStructuredAgentSessionAgent(
+      context,
+      sessionId,
+      startedFor,
+      expectedConversationOperationKey
+    )
   )
   return claim.outcome
 }
@@ -119,16 +132,20 @@ export function claimOperationStart(
   context: StructuredAgentSessionAttachContext,
   sessionId: string
 ): StructuredAgentSessionStartClaim {
-  const claim = claimStructuredAgentSessionAgent(context, sessionId)
-  return {
-    outcome: claim.outcome.catch((error: unknown) => {
-      context.deps.logger.warn('starting the agent for an operation failed', {
-        scope: 'operation-agent-start',
-        sessionId,
-        error
-      })
-      return { ok: false, refusal: startFailedRefusal() }
+  const failed = (error: unknown): StructuredAgentSessionResumeOutcome => {
+    context.deps.logger.warn('starting the agent for an operation failed', {
+      scope: 'operation-agent-start',
+      sessionId,
+      error
     })
+    return { ok: false, refusal: startFailedRefusal() }
+  }
+  try {
+    // Admission remains synchronous inside the caller's serialized lane.
+    const claim = claimStructuredAgentSessionAgent(context, sessionId)
+    return { outcome: claim.outcome.catch(failed) }
+  } catch (error) {
+    return { outcome: Promise.resolve(failed(error)) }
   }
 }
 
@@ -137,7 +154,8 @@ export function claimOperationStart(
 function registerStart(
   context: StructuredAgentSessionAttachContext,
   sessionId: string,
-  startedFor: string | undefined
+  startedFor: string | undefined,
+  expectedConversationOperationKey: string | null
 ): Promise<StructuredAgentSessionResumeOutcome> {
   const { runtimeState } = context
   const attemptId = randomUUID()
@@ -152,7 +170,9 @@ function registerStart(
   })
   const outcome = context.tasks.trackAttach(
     Promise.resolve()
-      .then(() => runStart(context, sessionId, startedFor, lock, attemptId))
+      .then(() =>
+        runStart(context, sessionId, startedFor, lock, attemptId, expectedConversationOperationKey)
+      )
       .catch((error: unknown) => {
         if (!acquire.signal.aborted) {
           throw error
@@ -183,7 +203,8 @@ async function runStart(
   sessionId: string,
   startedFor: string | undefined,
   lock: StructuredAgentSessionAttachLock,
-  attemptId: string
+  attemptId: string,
+  expectedConversationOperationKey: string | null
 ): Promise<StructuredAgentSessionResumeOutcome> {
   // A child a stop began closing takes no input, and none may start beside it: the start waits on
   // that close, and is refused while its exit stays unverifiable.
@@ -202,6 +223,7 @@ async function runStart(
   }
   await lock.wait(context.runtimeState.resolveRecovery(sessionId))
   const eligible = await lock.commit(async () => {
+    captureConversationStartScope(context.deps.store, sessionId, expectedConversationOperationKey)
     // A start needs the lease released; a release the exit's own wind-down could not write is
     // re-derived from this host's proof of that exit, never refused on.
     await releaseLeaseOfEndedStructuredAgentSessionChild(context, sessionId)
@@ -220,6 +242,7 @@ async function runStart(
     attached = await attachStructuredAgentSessionForStart(context, callerKey, params, {
       lock,
       startupAttemptId: attemptId,
+      expectedConversationOperationKey,
       ...(startedFor === undefined ? {} : { startedFor }),
       ...(startupOptions ? { startupOptions } : {}),
       onAcquisitionFailed: (error) => {

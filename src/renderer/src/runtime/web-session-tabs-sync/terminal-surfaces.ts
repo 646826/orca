@@ -3,6 +3,7 @@ import type {
   RuntimeMobileSessionTabsResult,
   RuntimeMobileSessionAgentTab
 } from '../../../../shared/runtime-types'
+import type { RuntimeMobileSessionConversationTab } from '../../../../shared/conversation-inventory'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../../shared/terminal-tab-types'
 import { defaultAgentChatLabel } from '../../../../shared/agent-session-chat-label'
 import { sanitizeTerminalLayoutPaneTitlesForLabels } from '../../../../shared/terminal-pane-title-sanitization'
@@ -51,10 +52,10 @@ export function isReadyEditorTab(
   return tab.type === 'markdown' || tab.type === 'file'
 }
 
-export function isAgentSessionTab(
+export function isStructuredChatTab(
   tab: RuntimeMobileSessionTabsResult['tabs'][number]
-): tab is RuntimeMobileSessionAgentTab {
-  return tab.type === 'agent-session'
+): tab is RuntimeMobileSessionAgentTab | RuntimeMobileSessionConversationTab {
+  return tab.type === 'agent-session' || tab.type === 'conversation'
 }
 
 export function buildMirroredAgentTabs(
@@ -67,12 +68,32 @@ export function buildMirroredAgentTabs(
   currentUnifiedTabs: readonly Tab[],
   now: number
 ): MirroredAgentTab[] {
+  const surfaces = snapshot.conversationSurfaces
   const agentTabs = snapshot.tabs
-    .filter(isAgentSessionTab)
+    .filter(isStructuredChatTab)
     .filter(
       (tab) =>
+        tab.type === 'conversation' ||
         !hasStructuredAgentSessionLaunchCancellationTombstone(snapshot.worktree, tab.sessionId)
     )
+    .map((tab) => ({
+      ...tab,
+      entityId: tab.type === 'conversation' ? tab.conversationId : tab.sessionId,
+      agent: tab.type === 'conversation' ? tab.activeAgent : tab.agent,
+      replacesSessionId:
+        tab.type === 'conversation'
+          ? surfaces?.complete
+            ? surfaces.surfaces.find(
+                (surface) =>
+                  surface.conversationId === tab.conversationId && surface.tabId === tab.id
+              )?.sourceSessionId
+            : undefined
+          : tab.replacesSessionId,
+      baseId: tab.type === 'conversation' ? tab.id : structuredAgentSessionTabId(tab.sessionId)
+    }))
+  const hostUnifiedTabs = currentUnifiedTabs.filter(
+    (tab) => !tab.executionHostId || tab.executionHostId === executionHostId
+  )
   const occupiedIds = new Set(currentUnifiedTabs.map((tab) => tab.id))
   const assignedIds = new Set<string>()
   const replacementTabs = new Map<string, Tab>()
@@ -82,38 +103,38 @@ export function buildMirroredAgentTabs(
       continue
     }
     const existing =
-      currentUnifiedTabs.find(
-        (candidate) =>
-          candidate.contentType === 'agent-session' && candidate.entityId === tab.sessionId
+      hostUnifiedTabs.find(
+        (candidate) => candidate.contentType === tab.type && candidate.entityId === tab.entityId
       ) ??
-      currentUnifiedTabs.find(
+      hostUnifiedTabs.find(
         (candidate) =>
           !replacementIds.has(candidate.id) &&
           candidate.contentType === 'agent-session' &&
           candidate.entityId === tab.replacesSessionId
       )
     if (existing) {
-      replacementTabs.set(tab.sessionId, existing)
+      replacementTabs.set(tab.id, existing)
       replacementIds.add(existing.id)
     }
   }
   return agentTabs.map((tab, index) => {
     const existing =
-      replacementTabs.get(tab.sessionId) ??
-      currentUnifiedTabs.find(
+      replacementTabs.get(tab.id) ??
+      hostUnifiedTabs.find(
         (candidate) =>
           !replacementIds.has(candidate.id) &&
-          candidate.contentType === 'agent-session' &&
-          candidate.entityId === tab.sessionId
+          candidate.contentType === tab.type &&
+          candidate.entityId === tab.entityId
       )
-    const launch = readStructuredAgentLaunchRecord(tab.sessionId)
+    const launch =
+      tab.type === 'agent-session' ? readStructuredAgentLaunchRecord(tab.entityId) : null
     const address =
       executionHostId === 'local' &&
       launch?.executionHostId === executionHostId &&
       launch.surfaceAddress?.worktreeId === snapshot.worktree
         ? launch.surfaceAddress
         : undefined
-    const baseId = structuredAgentSessionTabId(tab.sessionId)
+    const baseId = tab.baseId
     let localId = existing?.id ?? baseId
     if (!existing || assignedIds.has(localId)) {
       let suffix = 0
@@ -127,7 +148,7 @@ export function buildMirroredAgentTabs(
       hostTabId: tab.id,
       unifiedTab: {
         id: localId,
-        entityId: tab.sessionId,
+        entityId: tab.entityId,
         // Keep the local group while a provisional tab is promoted; host placement can lag the
         // user's split choice and must not move the mounted pane during adoption.
         groupId:
@@ -137,7 +158,7 @@ export function buildMirroredAgentTabs(
           fallbackGroupId,
         worktreeId: snapshot.worktree,
         executionHostId,
-        contentType: 'agent-session',
+        contentType: tab.type,
         agentSessionAgent: tab.agent,
         // Why: `title` is wire data typed `string`; a host that violates that must
         // degrade to the placeholder, not throw inside the snapshot patch.

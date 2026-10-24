@@ -1,3 +1,4 @@
+import { assertJournalSynchronousResult } from './journal-write-queue'
 import { isQueuedAgentJournalSubmission } from '../../../shared/agent-session-queued-submission'
 import {
   agentJournalItemKey,
@@ -7,7 +8,11 @@ import type { AgentJournalCursor } from '../../../shared/agent-session-journal-t
 import type { JournalReplacementItem } from './journal-epoch-replacement'
 import type { JournalReducerState } from './journal-reducer'
 import { buildJournalItemRow, buildJournalTombstoneRow } from './journal-row-builders'
-import type { JournalRowWriter, JournalOperationReceipt } from './journal-row-writer'
+import {
+  composeJournalOperationReceipts,
+  type JournalRowWriter,
+  type JournalOperationReceipt
+} from './journal-row-writer'
 import { buildJournalQueueClearRow } from './journal-stop-and-resume-rows'
 import { journalQueuePauseRestatement } from './queued-message-pause'
 import type { JournalQueuedMessages, JournalQueuePlan } from './journal-queued-messages'
@@ -102,12 +107,20 @@ export async function rewindJournalContext(input: {
     },
     {
       write: (db) => {
-        adoption?.receipt.write(db)
-        receipt!.write(db)
+        assertJournalSynchronousResult(adoption?.receipt.write(db))
+        assertJournalSynchronousResult(receipt!.write(db))
       },
       committed: () => {
-        adoption?.receipt.committed()
-        receipt!.committed()
+        assertJournalSynchronousResult(adoption?.receipt.committed())
+        assertJournalSynchronousResult(receipt!.committed())
+      },
+      rolledBack: () => {
+        assertJournalSynchronousResult(
+          composeJournalOperationReceipts(
+            ...(adoption ? [adoption.receipt] : []),
+            ...(receipt ? [receipt] : [])
+          ).rolledBack?.()
+        )
       }
     }
   )

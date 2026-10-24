@@ -1,3 +1,16 @@
+import { captureConversationTabLifetime } from '@/runtime/conversation-tab-lifetime'
+import {
+  executionHostIdForStructuredTarget,
+  structuredAgentSessionFocusOwner,
+  structuredAgentSessionOwnerForTab
+} from '@/runtime/structured-agent-session-owner'
+import { resolveLocalTabIdForHostSessionTab } from '@/runtime/web-session-tabs-sync/tracking-mappings'
+import {
+  setConversationTabVisibility,
+  refreshConversationTabLayout,
+  type ClosedConversationTab
+} from '@/runtime/conversation-tab-visibility'
+import { reportConversationVisibilityFailure } from './tabs/conversation-tab-close'
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import { runtimeEnvironmentIdForWorkspaceOwner } from '@/lib/resolve-owner'
@@ -32,7 +45,7 @@ export type ClosedTerminalTabSnapshot = {
   position?: RecentlyClosedTabPosition
 }
 
-export type RecentlyClosedTabKind = 'terminal' | 'browser' | 'editor'
+export type RecentlyClosedTabKind = 'terminal' | 'browser' | 'editor' | 'conversation'
 
 const MAX_RECENT_CLOSED_TERMINAL_TABS = 10
 // Why: wider than the per-type stacks (10) so cross-type ordering survives a
@@ -101,6 +114,9 @@ export function remapClosedTerminalTabSnapshotCwds(
 }
 
 export type RecentlyClosedTabsSlice = {
+  recentlyClosedConversationTabsByWorktree: Record<string, ClosedConversationTab[]>
+  rememberClosedConversationTab: (reference: ClosedConversationTab) => void
+  reopenClosedConversationTab: (worktreeId: string) => boolean
   /** Newest-first snapshots of user-closed terminal tabs, per worktree. */
   recentlyClosedTerminalTabsByWorktree: Record<string, ClosedTerminalTabSnapshot[]>
   /** Newest-first close order across the terminal/browser/editor reopen stacks
@@ -116,6 +132,73 @@ export const createRecentlyClosedTabsSlice: StateCreator<
   [],
   RecentlyClosedTabsSlice
 > = (set, get) => ({
+  recentlyClosedConversationTabsByWorktree: {},
+  rememberClosedConversationTab: (reference) =>
+    set((state) => ({
+      recentlyClosedConversationTabsByWorktree: {
+        ...state.recentlyClosedConversationTabsByWorktree,
+        [reference.workspaceId]: [
+          reference,
+          ...(state.recentlyClosedConversationTabsByWorktree[reference.workspaceId] ?? []).filter(
+            (old) =>
+              old.conversationId !== reference.conversationId ||
+              JSON.stringify(old.target) !== JSON.stringify(reference.target)
+          )
+        ].slice(0, 10)
+      },
+      recentlyClosedTabKindsByWorktree: pushRecentlyClosedTabKind(
+        state.recentlyClosedTabKindsByWorktree,
+        reference.workspaceId,
+        'conversation'
+      )
+    })),
+  reopenClosedConversationTab: (worktreeId) => {
+    const reference = get().recentlyClosedConversationTabsByWorktree[worktreeId]?.[0]
+    if (!reference) {
+      return false
+    }
+    set((state) => ({
+      recentlyClosedConversationTabsByWorktree: {
+        ...state.recentlyClosedConversationTabsByWorktree,
+        [worktreeId]: (state.recentlyClosedConversationTabsByWorktree[worktreeId] ?? []).slice(1)
+      }
+    }))
+    void (async () => {
+      let lifetime: ReturnType<typeof captureConversationTabLifetime> | undefined
+      try {
+        lifetime = captureConversationTabLifetime(get, reference)
+        await setConversationTabVisibility(reference, true, lifetime)
+        lifetime.assertCurrent()
+        await refreshConversationTabLayout(reference, lifetime)
+        lifetime.assertCurrent()
+        const tabId =
+          resolveLocalTabIdForHostSessionTab({
+            ...structuredAgentSessionFocusOwner(reference.target),
+            worktreeId,
+            hostTabId: reference.tabId
+          }) ?? reference.tabId
+        const restored = get().unifiedTabsByWorktree[worktreeId]?.find((tab) => tab.id === tabId)
+        if (
+          !restored ||
+          restored.contentType !== 'conversation' ||
+          restored.entityId !== reference.conversationId ||
+          structuredAgentSessionOwnerForTab(get(), restored) !==
+            executionHostIdForStructuredTarget(reference.target)
+        ) {
+          throw new Error('Conversation reopen frame unavailable')
+        }
+        get().activateTab(restored.id, { worktreeId, preservePreview: true })
+      } catch {
+        if (lifetime?.canRetainReference()) {
+          get().rememberClosedConversationTab(reference)
+          reportConversationVisibilityFailure()
+        }
+      } finally {
+        lifetime?.close()
+      }
+    })()
+    return true
+  },
   recentlyClosedTerminalTabsByWorktree: {},
   recentlyClosedTabKindsByWorktree: {},
 
@@ -192,11 +275,13 @@ export const createRecentlyClosedTabsSlice: StateCreator<
         return false
       }
       const reopened =
-        kind === 'terminal'
-          ? get().reopenClosedTerminalTab(worktreeId)
-          : kind === 'browser'
-            ? get().reopenClosedBrowserTab(worktreeId) !== null
-            : get().reopenClosedEditorTab(worktreeId)
+        kind === 'conversation'
+          ? get().reopenClosedConversationTab(worktreeId)
+          : kind === 'terminal'
+            ? get().reopenClosedTerminalTab(worktreeId)
+            : kind === 'browser'
+              ? get().reopenClosedBrowserTab(worktreeId) !== null
+              : get().reopenClosedEditorTab(worktreeId)
       if (reopened) {
         return true
       }

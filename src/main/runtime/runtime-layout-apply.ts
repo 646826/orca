@@ -52,7 +52,7 @@ export async function applyWindowLayoutCommand(
   run?: LayoutCommandRunOptions
 ): Promise<LayoutApplyReply> {
   if (command.type === 'renameTabs') {
-    return renameTabs(store, hostIdsFor, command)
+    return renameTabs(store, hostIdsFor, command, run?.beforeMutation)
   }
   if (
     isWslMoveWorkspaceSessionFrozen(command.workspace) ||
@@ -62,7 +62,7 @@ export async function applyWindowLayoutCommand(
     return { ok: false, code: 'wsl_move_in_progress' }
   }
   if (command.type === 'moveTabToWorkspace') {
-    return moveTabToWorkspace(store, hostIdsFor, command)
+    return moveTabToWorkspace(store, hostIdsFor, command, run)
   }
   if (command.type === 'renameEditorFiles' && command.alsoIn) {
     return renameEditorFilesInWorkspaces(store, hostIdsFor, command)
@@ -91,7 +91,8 @@ export async function applyWindowLayoutCommand(
     const terminalTabId = terminalIdOf(store, hostIds[0], command.workspace, command.tabIds[0])
     const reply = await store.applyLayoutCommand(
       { ...command, force: command.refusePinned ? command.force === true : true },
-      holders
+      holders,
+      ...(run ? [run] : [])
     )
     // Only a tab the close took: a refused (pinned) tab's launches still finish into it.
     if (
@@ -120,7 +121,8 @@ export async function applyWindowLayoutCommand(
             : {})
         }
       },
-      holders
+      holders,
+      ...(run ? [run] : [])
     )
     if (reply.ok && reply.result.tabId) {
       const move = {
@@ -151,7 +153,8 @@ export async function applyWindowLayoutCommand(
   markAgentLaunchesClosedByUser(workspace, { kind: 'pane', tabId, leafId })
   return store.applyLayoutCommand(
     { type: 'closePane', workspace, tabId, leafId, userPaneClose: true },
-    holders
+    holders,
+    ...(run ? [run] : [])
   )
 }
 
@@ -162,7 +165,8 @@ export async function applyWindowLayoutCommand(
 async function renameTabs(
   store: RuntimeStore,
   hostIdsFor: (worktreeId: string, tabId: string | null) => ExecutionHostId[],
-  command: RenameTabsCommand
+  command: RenameTabsCommand,
+  beforeMutation?: () => void
 ): Promise<LayoutApplyReply> {
   const untitled: UntitledTab[] = []
   const byHost = new Map<ExecutionHostId, CommandOf<'renameTab'>[]>()
@@ -184,7 +188,8 @@ async function renameTabs(
       throw new Error('layout_store_unavailable')
     }
     const refused = await store.applyTabRenames(
-      [...byHost].map(([hostId, renames]) => ({ hostId, renames }))
+      [...byHost].map(([hostId, renames]) => ({ hostId, renames })),
+      ...(beforeMutation ? [beforeMutation] : [])
     )
     untitled.push(
       ...refused.map(({ rename, code }) => ({
@@ -204,7 +209,8 @@ async function renameTabs(
 async function moveTabToWorkspace(
   store: RuntimeStore,
   hostIdsFor: (worktreeId: string, tabId: string | null) => ExecutionHostId[],
-  command: CommandOf<'moveTabToWorkspace'>
+  command: CommandOf<'moveTabToWorkspace'>,
+  run?: LayoutCommandRunOptions
 ): Promise<LayoutApplyReply> {
   // An editor tab lives in its workspace's routed partition.
   const [from] = hostIdsFor(command.workspace, null)
@@ -220,12 +226,17 @@ async function moveTabToWorkspace(
     if (!store.moveTabToWorkspaceAcrossPartitions) {
       throw new Error('layout_store_unavailable')
     }
-    return store.moveTabToWorkspaceAcrossPartitions(command, from, to)
+    return store.moveTabToWorkspaceAcrossPartitions(
+      command,
+      from,
+      to,
+      ...(run?.beforeMutation ? [run.beforeMutation] : [])
+    )
   }
   if (!store.applyLayoutCommand) {
     throw new Error('layout_store_unavailable')
   }
-  return store.applyLayoutCommand(command, [from])
+  return store.applyLayoutCommand(command, [from], ...(run ? [run] : []))
 }
 
 /**

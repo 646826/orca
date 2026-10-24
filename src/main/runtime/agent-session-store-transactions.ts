@@ -1,3 +1,5 @@
+import type Database from '../sqlite/sync-database'
+import { prepareConversationSubmissionOriginReceipt } from '../native-chat/conversations/conversation-submission-origin'
 // Every agent-session store mutation: draft the published state, apply, check and write exactly the
 // changed rows in one journal transaction, then publish the draft. A throw anywhere discards the
 // draft, so memory never holds a change the database does not.
@@ -126,6 +128,12 @@ export class AgentSessionStoreTransactions {
     return this.journalDatabase.readOnly
   }
 
+  readInOrder<T>(read: (state: AgentSessionStoreState) => T): Promise<T> {
+    const run = this.queue.then(() => read(this.published))
+    this.queue = run.catch(() => {})
+    return run
+  }
+
   admittedSendCount = (sessionId: string): number => this.admittedSends.get(sessionId) ?? 0
 
   readCommandReceipt(scope: CommandReceiptScope, operationId: string) {
@@ -139,11 +147,51 @@ export class AgentSessionStoreTransactions {
    */
   transact<T>(
     apply: (draft: AgentSessionStoreState) => T,
-    options: { inMemoryWhenReadOnly?: boolean } = {}
+    options: {
+      inMemoryWhenReadOnly?: boolean
+      inTransaction?: (db: Database.Database) => void
+    } = {}
   ): Promise<T> {
-    const run = this.queue.then(() => this.commit(apply, options.inMemoryWhenReadOnly === true))
+    const run = this.queue.then(() =>
+      this.commit(apply, options.inMemoryWhenReadOnly === true, options.inTransaction)
+    )
     this.queue = run.catch(() => {})
     return run
+  }
+
+  async transactWithLifecycleNotifications<T>(
+    apply: (draft: AgentSessionStoreState) => T,
+    options: {
+      inMemoryWhenReadOnly?: boolean
+      deathEvidenceListeners: ReadonlySet<(sessionId: string) => void>
+      firstRecordListeners: ReadonlySet<() => void>
+    }
+  ): Promise<T> {
+    const { deathEvidenceListeners, firstRecordListeners } = options
+    const holdsRecords = () => this.state.records.size > 0 || this.state.unreadableRecords.size > 0
+    let proven: string[] = []
+    let heldBefore = true
+    const result = await this.transact((draft) => {
+      heldBefore = holdsRecords()
+      if (deathEvidenceListeners.size === 0) {
+        return apply(draft)
+      }
+      const before = new Map(
+        [...draft.records].map(([id, record]) => [id, record.lease.deathEvidence])
+      )
+      const applied = apply(draft)
+      proven = [...draft.records]
+        .filter(([id, { lease }]) => lease.deathEvidence && lease.deathEvidence !== before.get(id))
+        .map(([id]) => id)
+      return applied
+    }, options)
+    for (const sessionId of proven) {
+      deathEvidenceListeners.forEach((listener) => listener(sessionId))
+    }
+    if (!heldBefore && holdsRecords()) {
+      firstRecordListeners.forEach((listener) => listener())
+    }
+    return result
   }
 
   /**
@@ -155,14 +203,25 @@ export class AgentSessionStoreTransactions {
     apply: (draft: AgentSessionStoreState) => void,
     options: { insertOperationsIfAbsent?: true; submissionSessionId?: string } = {}
   ): JournalOperationReceipt {
+    const submissionOrigin = options.submissionSessionId
+      ? prepareConversationSubmissionOriginReceipt(
+          this.journalDatabase.db,
+          options.submissionSessionId,
+          () => this.published.records.get(options.submissionSessionId!)?.lease
+        )
+      : undefined
     let staged: StagedStoreTransaction<void> | null = null
     let admitted: string | undefined
     return {
       write: (db, row) => {
+        if (db !== this.journalDatabase.db) {
+          throw new Error('Store receipt crossed host databases')
+        }
         if (this.journalDatabase.readOnly) {
           throw readOnlyStoreRefusal()
         }
         admitted = row?.kind === 'submission' ? options.submissionSessionId : undefined
+        submissionOrigin?.write(db, row)
         // The ledger and wake share one draft as well as one commit.
         staged = this.stage((draft) => {
           apply(draft)
@@ -196,6 +255,11 @@ export class AgentSessionStoreTransactions {
         }
         staged = null
         admitted = undefined
+      },
+      rolledBack: () => {
+        staged = null
+        admitted = undefined
+        submissionOrigin?.rolledBack?.()
       }
     }
   }
@@ -210,15 +274,24 @@ export class AgentSessionStoreTransactions {
     return run
   }
 
-  private commit<T>(apply: (draft: AgentSessionStoreState) => T, inMemoryWhenReadOnly: boolean): T {
+  private commit<T>(
+    apply: (draft: AgentSessionStoreState) => T,
+    inMemoryWhenReadOnly: boolean,
+    inTransaction?: (db: Database.Database) => void
+  ): T {
     const readOnly = this.journalDatabase.readOnly
-    if (readOnly && !inMemoryWhenReadOnly) {
+    if (readOnly && (!inMemoryWhenReadOnly || inTransaction)) {
       throw readOnlyStoreRefusal()
     }
     const staged = this.stage(apply)
     const writes = staged.writes
-    if (writes && !readOnly) {
-      this.journalDatabase.transaction((db) => writeAgentSessionStoreRows(db, writes))
+    if ((writes || inTransaction) && !readOnly) {
+      this.journalDatabase.transaction((db) => {
+        if (writes) {
+          writeAgentSessionStoreRows(db, writes)
+        }
+        inTransaction?.(db)
+      })
     }
     staged.adopt()
     return staged.result

@@ -1,3 +1,4 @@
+import type { RuntimeMobileSessionConversationTab } from '../../../src/shared/conversation-inventory'
 import type { MobileTerminalTheme } from '../terminal/terminal-webview-contract'
 import type { AgentStatusEntry } from '../../../src/shared/agent-status-types'
 import type { BrowserLoadError } from '../../../src/shared/browser-workspace-types'
@@ -34,6 +35,7 @@ export type MobileTerminalSessionTab = {
 }
 
 type MobileSessionTabLike =
+  | RuntimeMobileSessionConversationTab
   | MobileTerminalSessionTab
   | {
       type: 'markdown'
@@ -127,6 +129,19 @@ function mobileSessionTabEqual(
     return false
   }
   switch (a.type) {
+    case 'conversation':
+      return (
+        b.type === 'conversation' &&
+        a.conversationId === b.conversationId &&
+        a.activeSessionId === b.activeSessionId &&
+        a.activeAgent === b.activeAgent &&
+        a.contextGeneration === b.contextGeneration &&
+        a.activationFence === b.activationFence &&
+        a.surfaceRevision === b.surfaceRevision &&
+        a.color === b.color &&
+        a.isPinned === b.isPinned
+      )
+
     case 'terminal':
       return (
         b.type === 'terminal' &&

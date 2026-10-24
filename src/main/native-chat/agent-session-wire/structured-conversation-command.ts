@@ -58,7 +58,11 @@ export function runStructuredConversationCommand(
     context,
     caller.callerKey,
     params.envelope,
-    { method: 'agentSession.conversationCommand', fields: { command: params.command } },
+    {
+      method: 'agentSession.conversationCommand',
+      fields: { command: params.command },
+      conversationMutationSupported: caller.conversationMutationSupported
+    },
     (selection) => clearUnderSerialize(context, caller, params, selection)
   )
 }
@@ -85,6 +89,7 @@ async function clearUnderSerialize(
     agents: context.deps.agents,
     logger: context.deps.logger,
     callerKey: caller.callerKey,
+    conversationMutationSupported: caller.conversationMutationSupported,
     envelope,
     // Starts the agent only to settle a rewind in doubt, as a send does; a /clear itself starts nothing.
     prepareSession: sendPreparation(context, envelope, { refusesInRun: true }, selection),

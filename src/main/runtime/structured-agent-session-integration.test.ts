@@ -12,6 +12,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { acquireProfileStateRuntimeAdmission } from '../persistence/profile-state/profile-state-access'
 import type {
   CodexAppServerConnection,
   CodexAppServerConnectionHandlers,
@@ -233,6 +234,7 @@ const handedOverAs = (params: Record<string, unknown>) =>
     expect(codex.live().calls.at(-1)).toMatchObject({ method: 'turn/start', params })
   )
 let root: string
+let admission: ReturnType<typeof acquireProfileStateRuntimeAdmission>
 let dispatcher: RpcDispatcher
 let bootEnvironmentReads: number
 let codexOverrideReads: number
@@ -333,6 +335,7 @@ async function readKnownOptions(): Promise<RpcResponse> {
 beforeEach(async () => {
   operations = 0
   root = await mkdtemp(join(tmpdir(), 'orca-structured-integration-'))
+  admission = acquireProfileStateRuntimeAdmission(root)
   codex = fakeCodex()
   bootEnvironmentReads = 0
   codexOverrideReads = 0
@@ -425,6 +428,7 @@ function cursorOf(frames: AgentSessionSubscribeEvent[]): { epoch: string; sequen
 afterEach(async () => {
   await journals.closeAll()
   await stopStructuredAgentSessionRuntime()
+  admission.release()
   await rm(root, { recursive: true, force: true })
 })
 

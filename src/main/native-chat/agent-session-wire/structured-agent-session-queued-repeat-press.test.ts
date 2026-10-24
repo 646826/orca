@@ -2,7 +2,7 @@
 // Send-now, Delete or Resume reaches the host as a new operation. The host
 // answers it from the draft's state: nothing sends twice and nothing refuses.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createQueuedMessageTestRig,
   QUEUED_RIG_CALLER as CALLER,
@@ -23,7 +23,10 @@ beforeEach(async () => {
   rig = await createQueuedMessageTestRig()
 })
 
-afterEach(() => rig.dispose())
+afterEach(async () => {
+  vi.restoreAllMocks()
+  await rig.dispose()
+})
 
 async function queuedDraft(text: string): Promise<string> {
   const queued = await rig.send(text, 'queue-if-active').result
@@ -150,24 +153,43 @@ describe('a queued Send receipt', () => {
   })
 })
 
-it('returns a committed queued Send after its publication fails', async () => {
-  await rig.workingSend()
+it('accepts a committed queued Send despite observer failure and hands it off only once', async () => {
+  await openRigTurnFor(rig, await rig.workingSend())
   const id = hostTestOperationId()
   const body = hostTestMessage('committed queued draft')
   const fields = { body, delivery: 'queue-if-active' as const }
   const params = { ...fields, envelope: rig.envelope(fields, 'agentSession.send', id) }
   const journal = rig.host.collaboratorsForTests().sessions.get(SESSION)!.journal
-  journal.observeCommits(() => {
-    throw new Error('draft publication failed')
-  })
+  const error = new Error('draft publication failed')
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  journal.observeCommits(
+    vi.fn().mockImplementationOnce(() => {
+      throw error
+    })
+  )
   try {
     expect(await rig.host.send(CALLER, params)).toMatchObject({
       ok: true,
-      replayed: true,
+      replayed: false,
       value: { queued: { messageId: id, position: 1, state: 'waiting' } }
     })
     expect(await rig.host.send(CALLER, params)).toMatchObject({ ok: true, replayed: true })
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[agent-session-journal] durable commit observer failed',
+      error
+    )
     expect(await rig.drafts()).toHaveLength(1)
+    expect(await rig.handoff(id)).toBeUndefined()
+    expect(rig.dispatch).toHaveBeenCalledTimes(1)
+    expect(await rig.sendNow(id)).toMatchObject({ ok: true, replayed: false })
+    await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(2))
+    expect(await rig.host.send(CALLER, params)).toMatchObject({
+      ok: true,
+      replayed: true,
+      value: { submission: { queuedMessageId: id } }
+    })
+    expect(journal.submissions().filter((entry) => entry.queuedMessageId === id)).toHaveLength(1)
+    expect(rig.dispatch).toHaveBeenCalledTimes(2)
   } finally {
     journal.observeCommits(() => {})
   }

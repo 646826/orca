@@ -389,11 +389,12 @@ describe('send receipt acceptance', () => {
     expect(dispatch).toHaveBeenCalledTimes(1)
   })
 
-  it('returns the committed send through receipt replay after publication fails', async () => {
+  it('accepts a committed send despite observer failure and replays it without sending twice', async () => {
     await attach()
     const params = sendParams('accepted before publication failed')
     const journal = hostJournal()
     const error = new Error('publication failed')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     journal.observeCommits(
       vi.fn().mockImplementationOnce(() => {
         throw error
@@ -401,26 +402,19 @@ describe('send receipt acceptance', () => {
     )
     await expect(host.send(CALLER, params)).resolves.toMatchObject({
       ok: true,
-      replayed: true,
+      replayed: false,
       value: { submission: { dispatchState: 'pending' } }
     })
-    expect(hostTestState().log.entries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          fields: expect.objectContaining({ scope: 'send-journal-write', error })
-        }),
-        expect.objectContaining({
-          fields: expect.objectContaining({
-            scope: 'command-receipt-publication',
-            refusal: 'agent_session_operation_invalid'
-          })
-        })
-      ])
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      '[agent-session-journal] durable commit observer failed',
+      error
     )
     expect(journal.submissions()).toHaveLength(1)
     await expect(host.send(CALLER, params)).resolves.toMatchObject({ ok: true, replayed: true })
     journal.observeCommits(() => {})
     await deliveredOnce()
+    expect(journal.submissions()).toHaveLength(1)
+    expect(journal.submissions()[0]?.clientMessageId).toBe(params.envelope.clientOperationId)
   })
 })
 

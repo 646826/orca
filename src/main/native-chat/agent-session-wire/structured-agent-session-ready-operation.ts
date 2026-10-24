@@ -1,3 +1,4 @@
+import { conversationSwitchMutationRefusal } from './structured-conversation-switch-admission'
 import {
   agentSessionFingerprintConflict,
   computeAgentSessionPayloadFingerprint
@@ -16,7 +17,10 @@ import {
   replayRecordedOperation,
   type AgentSessionMutationSessionPreparation
 } from './structured-agent-session-mutation-admission'
-import type { MutationPlan } from './structured-agent-session-mutation-plans'
+import {
+  selectReadyOperationChild,
+  type ReadyOperationPlan
+} from './structured-agent-session-ready-selection'
 import { mutationTurnContext } from './structured-agent-session-mutation-turn-context'
 import { commandReceiptScope } from '../agent-session-journal/command-receipt-schema'
 import { parseAgentSessionOperationTimestamp } from '../../../shared/agent-session-host-authority'
@@ -39,13 +43,6 @@ export {
   type ReadyOperationSelection
 } from './structured-agent-session-operation-child'
 
-type ReadyOperationPlan<T> = Pick<
-  MutationPlan<T>,
-  'method' | 'fields' | 'operationIdScope' | 'commandReceipt'
-> &
-  Partial<
-    Pick<MutationPlan<T>, 'replay' | 'rerunWhenReplayMissing' | 'recoverUnknownFromDurableState'>
-  >
 type QueuedReadyOperation<T> =
   | { result: AgentSessionMutationResult<T> }
   | {
@@ -191,18 +188,24 @@ export async function runWithReadyStructuredAgentSessionOperation<T>(
           }
         }
       }
-      const select = async () => {
-        const opened = await openForWrite(context, envelope)()
-        if (!opened.ok) {
-          return opened
-        }
-        const checked = options.beforeAgent?.(context.deps.store.getRecord(envelope.sessionId))
-        if (checked && !checked.ok) {
-          return checked
-        }
-        return selectStructuredAgentSessionOperationChild(context, envelope.sessionId)
+      const mutationRefusal = () =>
+        conversationSwitchMutationRefusal(
+          context.deps.store,
+          envelope.sessionId,
+          plan.method,
+          plan.fields,
+          plan.conversationMutationSupported
+        )
+      const refused = mutationRefusal()
+      if (refused) {
+        return { result: { ok: false, refusal: refused } }
       }
-      const child = await select().catch((error: unknown) => {
+      const child = await selectReadyOperationChild(
+        context,
+        envelope,
+        mutationRefusal,
+        options.beforeAgent
+      ).catch((error: unknown) => {
         context.deps.logger.warn('selecting an agent for an operation failed', {
           scope: 'operation-agent-start',
           sessionId: envelope.sessionId,

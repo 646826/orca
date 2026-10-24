@@ -4,6 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+  acquireProfileStateRuntimeAdmission,
+  type ProfileStateRuntimeAdmission
+} from '../persistence/profile-state/profile-state-access'
 import { readWholeAgentSessionFailureFact } from '../../shared/agent-session-failure'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import {
@@ -20,12 +24,16 @@ import {
 } from './structured-agent-session-runtime'
 
 let directory: string | undefined
+
+let admission: ProfileStateRuntimeAdmission | undefined
 let operations = 0
 const operationId = () => `${Date.now()}-${(++operations).toString(16).padStart(32, '0')}`
 const caller = { callerKey: 'pi-signed-out-start-test' }
 
 afterEach(async () => {
   await stopStructuredAgentSessionRuntime()
+  admission?.release()
+  admission = undefined
   if (directory) {
     await rm(directory, { recursive: true, force: true })
     directory = undefined
@@ -34,6 +42,7 @@ afterEach(async () => {
 
 it('settles the held message once, closes Pi, and starts afresh for a later send after sign-in', async () => {
   directory = await mkdtemp(join(tmpdir(), 'orca-pi-signed-out-'))
+  admission = acquireProfileStateRuntimeAdmission(directory)
   const root = directory
   const script = piScriptedChild({ signedOut: true })
   const host = await ensureStructuredAgentSessionHost({

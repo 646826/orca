@@ -1,3 +1,4 @@
+import { observeRemoteConversationStatus } from './remote-conversation-layout-admission'
 import { BrowserWindow } from 'electron'
 import { sendRemoteRuntimeRequest } from '../../../shared/remote-runtime-client'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../../shared/protocol-version'
@@ -145,6 +146,7 @@ export function createRuntimeEnvironmentStatusOwner(
       return capable && active
     },
     publish: (snapshot) => {
+      observeRemoteConversationStatus(snapshot)
       for (const window of BrowserWindow.getAllWindows()) {
         if (window.isDestroyed()) {
           continue

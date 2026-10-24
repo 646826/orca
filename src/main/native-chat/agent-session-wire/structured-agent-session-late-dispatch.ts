@@ -1,3 +1,8 @@
+import { resolveConversationOrigins } from '../conversations/conversation-origin-rows'
+import {
+  recordConversationOriginCorrelation,
+  type ConversationOriginCorrelation
+} from '../conversations/conversation-origin-correlation'
 import type {
   AgentJournalAnsweredTurnIdentity,
   AgentJournalItemIdentity
@@ -19,15 +24,26 @@ export async function settleStructuredAgentSessionLateDispatch(
     sessionId: string
     clientMessageId: string
   } & (
-    | { providerIdentity: AgentJournalItemIdentity }
+    | { providerIdentity: AgentJournalItemIdentity; originCorrelation?: 'exact' }
     | ({
         state: 'rejected'
         answeredInTurn?: AgentJournalAnsweredTurnIdentity
         unrun?: true
       } & AgentJournalDispatchRejection)
     | { state: 'unknown'; reason: string }
+    | ConversationOriginCorrelation
   )
 ): Promise<void> {
+  if ('state' in input && input.state === 'origin-correlated') {
+    await context.deps.store.commitOperationReceipt({
+      write: (db) => {
+        recordConversationOriginCorrelation(db, input)
+        resolveConversationOrigins(db, input.sessionId)
+      },
+      committed: () => context.publishWorkChanged(input.sessionId)
+    })
+    return
+  }
   const session = context.sessions.get(input.sessionId)
   if (!session) {
     return
@@ -44,6 +60,7 @@ export async function settleStructuredAgentSessionLateDispatch(
           clientMessageId: input.clientMessageId,
           state: 'accepted',
           providerIdentity: input.providerIdentity,
+          ...(input.originCorrelation === 'exact' ? { originCorrelation: 'exact' as const } : {}),
           fence
         }
       : input.state === 'unknown'

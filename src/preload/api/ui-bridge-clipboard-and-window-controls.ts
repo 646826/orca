@@ -88,6 +88,7 @@ export const uiClipboardAndWindowControlsApi = {
     connectionId?: string | null
     runtimeEnvironmentId?: string | null
     agentSessionAttachment?: AgentSessionAttachmentClipboardTarget
+    localAttachmentOwner?: { sessionId: string }
     forNativeChatDraft?: boolean
     forStructuredChat?: boolean
   }): Promise<string | null> => ipcRenderer.invoke('clipboard:saveImageAsTempFile', args),
@@ -95,6 +96,7 @@ export const uiClipboardAndWindowControlsApi = {
     text: string
     runtimeEnvironmentId?: string | null
     agentSessionAttachment?: AgentSessionAttachmentClipboardTarget
+    localAttachmentOwner?: { sessionId: string }
   }): Promise<string> => ipcRenderer.invoke('clipboard:savePastedTextAsFile', args),
   clipboardHasImage: (): Promise<boolean> => ipcRenderer.invoke('clipboard:hasImage'),
   readClipboardFilePaths: (): Promise<string[]> => ipcRenderer.invoke('clipboard:readFilePaths'),

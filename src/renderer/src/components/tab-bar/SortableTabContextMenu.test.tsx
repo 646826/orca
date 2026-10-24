@@ -38,6 +38,18 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
     </button>
   ),
   DropdownMenuLabel: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DropdownMenuRadioGroup: ({ children }: { children?: ReactNode }) => children,
+  DropdownMenuRadioItem: ({
+    children,
+    'aria-label': label
+  }: {
+    children?: ReactNode
+    'aria-label'?: string
+  }) => (
+    <button type="button" aria-label={label}>
+      {children}
+    </button>
+  ),
   DropdownMenuSeparator: () => null,
   DropdownMenuSub: ({ children }: { children?: ReactNode }) => children,
   DropdownMenuSubContent: ({ children }: { children?: ReactNode }) => children,

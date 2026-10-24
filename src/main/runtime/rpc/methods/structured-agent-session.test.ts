@@ -130,17 +130,6 @@ describe('agentSession.reveal', () => {
 })
 
 describe('capability gating', () => {
-  it('clears durable tab visibility when closing through the agent-session RPC', async () => {
-    const response = await call('agentSession.close', { sessionId: SESSION }, STRUCTURED_CLIENT)
-
-    expect(response).toMatchObject({ ok: true, result: { ok: true } })
-    expect(hostCalls.close).toHaveBeenCalledWith(SESSION, 'user-close')
-    expect(hostCalls.setSessionTabVisibility).toHaveBeenCalledWith(SESSION, false)
-    expect(hostCalls.setSessionTabVisibility.mock.invocationCallOrder[0]).toBeLessThan(
-      hostCalls.close.mock.invocationCallOrder[0]!
-    )
-  })
-
   it('does not stop the provider when durable tab retirement fails', async () => {
     hostCalls.setSessionTabVisibility.mockRejectedValueOnce(new Error('visibility write failed'))
 

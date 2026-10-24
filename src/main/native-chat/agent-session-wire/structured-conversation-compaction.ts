@@ -150,8 +150,12 @@ function acceptStructuredConversationCommand(
     ...(params.delivery ? { delivery: params.delivery } : {}),
     priorRecord
   })
-  return runAfterRewindStart(context, caller.callerKey, params.envelope, plan, (selection) =>
-    acceptUnderSerialize(context, caller, params, plan, arrival, selection)
+  return runAfterRewindStart(
+    context,
+    caller.callerKey,
+    params.envelope,
+    { ...plan, conversationMutationSupported: caller.conversationMutationSupported },
+    (selection) => acceptUnderSerialize(context, caller, params, plan, arrival, selection)
   )
 }
 

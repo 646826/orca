@@ -1,3 +1,4 @@
+import { conversationSwitchMutationRefusal } from './structured-conversation-switch-admission'
 import { parseAgentSessionOperationTimestamp } from '../../../shared/agent-session-host-authority'
 import {
   agentSessionLedgerRefusal,
@@ -65,6 +66,16 @@ export async function admitCommandReceiptMutation<TValue>(
   if (read.verdict !== 'absent') {
     return answerCommandReceipt(request, hostFingerprint, read)
   }
+  const switchRefusal = conversationSwitchMutationRefusal(
+    store,
+    envelope.sessionId,
+    plan.method,
+    plan.fields,
+    request.conversationMutationSupported
+  )
+  if (switchRefusal) {
+    return refuseAgentSessionMutation(switchRefusal)
+  }
   const prepared = await request.prepareSession?.('admit', record)
   if (prepared && !prepared.ok) {
     return prepared
@@ -78,6 +89,16 @@ export async function admitCommandReceiptMutation<TValue>(
   const leaseRefusal = plan.conversationWrite ? null : refuseUnlessWriterAdmitted(current.lease)
   if (leaseRefusal) {
     return refuseAgentSessionMutation(leaseRefusal)
+  }
+  const changedSwitch = conversationSwitchMutationRefusal(
+    store,
+    envelope.sessionId,
+    plan.method,
+    plan.fields,
+    request.conversationMutationSupported
+  )
+  if (changedSwitch) {
+    return refuseAgentSessionMutation(changedSwitch)
   }
   const context = mutationTurnContext(request, journal, current)
   try {

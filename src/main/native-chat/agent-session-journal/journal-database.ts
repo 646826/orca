@@ -1,3 +1,31 @@
+import { runJournalTransaction } from './journal-transaction'
+export { runJournalTransaction } from './journal-transaction'
+import { createConversationTransferRecoveryTablesSql } from '../conversations/conversation-transfer-recovery-schema'
+import { createConversationTransferNoWriteTablesSql } from '../conversations/conversation-transfer-no-write-schema'
+import {
+  createConversationArchiveTablesSql,
+  createConversationArchiveLookupIndexesSql
+} from '../conversations/conversation-archive-schema'
+import { migrateQueuedMessageOrigins } from './queued-message-origin-schema'
+import { createConversationClearTablesSql } from '../conversations/conversation-clear-schema'
+import { createAgentSessionUploadProvenanceTablesSql } from '../agent-session-attachments/agent-session-upload-provenance'
+import { createConversationTabSurfaceTablesSql } from '../conversations/conversation-tab-surface-schema'
+import { createConversationEvidenceTrustTablesSql } from '../conversations/conversation-evidence-trust'
+import { createConversationPreparationTablesSql } from '../conversations/conversation-preparation-schema'
+import { createConversationPreparationRequestTablesSql } from '../conversations/conversation-preparation-request'
+import { createConversationSourceProvenanceRevisionTablesSql } from '../conversations/conversation-source-provenance-revision'
+import { createConversationDeliveryTablesSql } from '../conversations/conversation-delivery-schema'
+import { createConversationOriginTablesSql } from '../conversations/conversation-origin-schema'
+import { migrateConversationTriggerReservations } from '../conversations/conversation-trigger-schema'
+import { createConversationTablesSql } from '../conversations/conversation-schema'
+import { createConversationContextTablesSql } from '../conversations/conversation-context-schema'
+import { createConversationSourceAtomTablesSql } from '../conversations/conversation-source-atoms'
+import { createConversationExportProofTablesSql } from '../conversations/conversation-context-export-proof'
+import { createConversationManifestPartTablesSql } from '../conversations/conversation-context-parts'
+import { createConversationExportDisclosureTablesSql } from '../conversations/conversation-source-disclosure'
+import { createConversationAuthorityRevisionTablesSql } from '../conversations/conversation-context-authority-revision'
+import { createConversationManifestIndexAuthorityTablesSql } from '../conversations/conversation-context-index-authority'
+import { createConversationIndexedCoverageTablesSql } from '../conversations/conversation-context-index-coverage'
 // Opening the host's chat journal database.
 //
 // `PRAGMA user_version` is read FIRST, on a connection that has set no persistent pragma and run
@@ -16,6 +44,8 @@ import { JournalUnreleasedSchemaError } from './journal-open-failure'
 import { ensureQueuedMessagesTable } from './queued-message-schema'
 import { ensureCommandReceiptsTable } from './command-receipt-schema'
 import { ensureAgentSessionAttachmentClaimTables } from '../agent-session-attachments/agent-session-attachment-claims'
+import { createJournalEpochPinTablesSql } from './journal-epoch-pins'
+import { ensureConversationAttachmentClaimTables } from '../agent-session-attachments/conversation-attachment-claims'
 
 export const JOURNAL_BUSY_TIMEOUT_MS = 5000
 /** Bounds the WAL a checkpoint leaves behind; SQLite truncates it back to this after a reset. */
@@ -52,7 +82,12 @@ export function journalDatabaseHoldsAgentSessions(dbPath: string): boolean {
   }
 }
 
-export function openJournalDatabase(dbPath: string): OpenJournalDatabase {
+export type JournalMigrationGuard = (run: () => void) => void
+
+export function openJournalDatabase(
+  dbPath: string,
+  withMigration?: JournalMigrationGuard
+): OpenJournalDatabase {
   const probe = new Database(dbPath)
   let stored: number
   try {
@@ -70,21 +105,26 @@ export function openJournalDatabase(dbPath: string): OpenJournalDatabase {
   }
   let transferred = false
   try {
-    if (stored !== 0 && stored < JOURNAL_DB_OLDEST_RELEASED_VERSION) {
-      // No retry reads past it, so every chat says it can't load; the log says what to do.
-      throw new JournalUnreleasedSchemaError(
-        `chat journal ${dbPath} uses unreleased schema ${stored}, written by an unreleased development build of Orca. Orca can't load its chats. Moving the file aside lets Orca start a new one, but that loses every chat's history, tabs and ownership records stored in it.`
-      )
+    let readOnly = false
+    const initialize = () => {
+      stored = journalPragmaNumber(probe, 'user_version')
+      if (stored > JOURNAL_DB_SCHEMA_VERSION) {
+        readOnly = true
+        return
+      }
+      initializeWritableJournal(probe, dbPath, stored)
     }
-    configureJournalPragmas(probe, stored)
-    migrateJournalSchema(probe, stored)
-    // Outside `migrateJournalSchema` on purpose: its early return skips a db
-    // already at the current version, and this table must exist at EVERY
-    // writable open with no `user_version` bump (see `ensureQueuedMessagesTable`).
-    ensureQueuedMessagesTable(probe)
-    ensureCommandReceiptsTable(probe)
-    ensureAgentSessionAttachmentClaimTables(probe)
-    hardenSqliteDatabaseFiles(dbPath)
+    if (stored < JOURNAL_DB_SCHEMA_VERSION && withMigration) {
+      runGuardedMigration(withMigration, initialize)
+    } else {
+      initialize()
+    }
+    if (readOnly) {
+      return {
+        db: new Database(dbPath, { readonly: true, fileMustExist: true }),
+        readOnly: true
+      }
+    }
     transferred = true
     return { db: probe, readOnly: false }
   } finally {
@@ -92,6 +132,41 @@ export function openJournalDatabase(dbPath: string): OpenJournalDatabase {
       probe.close()
     }
   }
+}
+
+function runGuardedMigration(guard: JournalMigrationGuard, initialize: () => void): void {
+  let active = true
+  let called = false
+  let completed = false
+  try {
+    const result: unknown = guard(() => {
+      if (!active || called) {
+        throw new Error('journal migration guard must invoke its callback synchronously once')
+      }
+      called = true
+      initialize()
+      completed = true
+    })
+    if (!completed || result instanceof Promise) {
+      throw new Error('journal migration guard must invoke its callback synchronously once')
+    }
+  } finally {
+    active = false
+  }
+}
+
+function initializeWritableJournal(db: Database.Database, dbPath: string, stored: number): void {
+  if (stored !== 0 && stored < JOURNAL_DB_OLDEST_RELEASED_VERSION) {
+    throw new JournalUnreleasedSchemaError(
+      `chat journal ${dbPath} uses unreleased schema ${stored}, written by an unreleased development build of Orca. Orca can't load its chats. Moving the file aside lets Orca start a new one, but that loses every chat's history, tabs and ownership records stored in it.`
+    )
+  }
+  configureJournalPragmas(db, stored)
+  migrateJournalSchema(db, stored)
+  ensureQueuedMessagesTable(db)
+  ensureCommandReceiptsTable(db)
+  ensureAgentSessionAttachmentClaimTables(db)
+  hardenSqliteDatabaseFiles(dbPath)
 }
 
 function configureJournalPragmas(db: Database.Database, stored: number): void {
@@ -125,42 +200,38 @@ function migrateJournalSchema(db: Database.Database, stored: number): void {
       db.exec(createJournalTablesSql())
     }
     db.exec(createAgentSessionRecordTablesSql())
+    db.exec(createJournalEpochPinTablesSql())
+    db.exec(createConversationTablesSql())
+    db.exec(createConversationClearTablesSql())
+    db.exec(createConversationArchiveTablesSql())
+    db.exec(createConversationTabSurfaceTablesSql())
+    db.exec(createAgentSessionUploadProvenanceTablesSql())
+    ensureQueuedMessagesTable(db)
+    migrateQueuedMessageOrigins(db)
+    migrateConversationTriggerReservations(db)
+    db.exec(createConversationOriginTablesSql())
+    db.exec(createConversationEvidenceTrustTablesSql())
+    db.exec(createConversationContextTablesSql())
+    db.exec(createConversationDeliveryTablesSql())
+    db.exec(createConversationTransferNoWriteTablesSql())
+    db.exec(createConversationTransferRecoveryTablesSql())
+    db.exec(createConversationPreparationTablesSql())
+    db.exec(createConversationManifestPartTablesSql())
+    db.exec(createConversationManifestIndexAuthorityTablesSql())
+    db.exec(createConversationIndexedCoverageTablesSql())
+    db.exec(createConversationSourceAtomTablesSql())
+    ensureAgentSessionAttachmentClaimTables(db)
+    ensureConversationAttachmentClaimTables(db)
+    db.exec(createConversationExportProofTablesSql())
+    db.exec(createConversationExportDisclosureTablesSql())
+    db.exec(createConversationAuthorityRevisionTablesSql())
+    db.exec(createConversationSourceProvenanceRevisionTablesSql())
+    db.exec(createConversationPreparationRequestTablesSql())
+    db.exec(createConversationArchiveLookupIndexesSql())
+    // Prior writers cannot represent preallocated origins; unresolved legacy intents stay fenced.
+    db.exec(
+      "UPDATE conversation_switch_intents SET record_json=json_set(record_json,'$.candidateSegmentId',NULL) WHERE json_type(record_json,'$.candidateSegmentId') IS NULL"
+    )
     db.pragma(`user_version = ${JOURNAL_DB_SCHEMA_VERSION}`)
   })
-}
-
-/**
- * One IMMEDIATE transaction, its COMMIT inside the failure boundary: SQLite can leave a transaction
- * open after a failed COMMIT, and on the shared connection every later BEGIN would then fail. The
- * caller gets the original error; a ROLLBACK that fails too goes to `onStranded`. `run` is
- * synchronous by contract: an await inside it would let another chat's statements land in this
- * transaction.
- */
-export function runJournalTransaction<T>(
-  db: Database.Database,
-  run: (db: Database.Database) => T,
-  onStranded: () => void = () => undefined
-): T {
-  db.exec('BEGIN IMMEDIATE')
-  try {
-    const result = run(db)
-    if (result instanceof Promise) {
-      throw new Error('a chat journal transaction must not await')
-    }
-    db.exec('COMMIT')
-    return result
-  } catch (error) {
-    if (db.isTransaction) {
-      try {
-        db.exec('ROLLBACK')
-      } catch (rollbackError) {
-        console.warn(
-          '[agent-session-journal] rolling back a failed transaction failed',
-          rollbackError
-        )
-        onStranded()
-      }
-    }
-    throw error
-  }
 }

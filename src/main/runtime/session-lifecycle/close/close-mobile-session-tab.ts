@@ -1,9 +1,6 @@
+import type { MobileSessionTabCloseOptions } from '../../mobile-session-tab-close-options'
 import { OrcaRuntimeWithCloseMobileRowInMainLayout } from './close-mobile-row-in-main-layout'
-import type {
-  RuntimeMobileSessionTerminalTab,
-  RuntimeSessionTabCloseReason
-} from '../../../../shared/runtime-types'
-import type { RuntimePtyTabCloseAuthority } from '../../runtime-terminal-state-records'
+import type { RuntimeMobileSessionTerminalTab } from '../../../../shared/runtime-types'
 import {
   adjudicateAbsentMobileSessionTabClose,
   resolveMobileSessionLifecycleCloseContext,
@@ -29,15 +26,7 @@ export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWi
   async closeMobileSessionTab(
     worktreeSelector: string,
     tabId: string,
-    options: {
-      reason?: RuntimeSessionTabCloseReason
-      expectedPublicationEpoch?: string
-      expectedTerminalHandle?: string
-      clientNavigationId?: string
-      localPtyTeardownOwnedExternally?: boolean
-      expectedPtyCloseAuthority?: RuntimePtyTabCloseAuthority
-      force?: boolean
-    } = {}
+    options: MobileSessionTabCloseOptions = {}
   ): Promise<MobileSessionTabCloseOutcome> {
     const graphEpoch = options.clientNavigationId ? this.captureReadyGraphEpoch() : null
     const explicitWorktreeId = this.getExplicitSessionWorktreeIdSelector(worktreeSelector)
@@ -300,6 +289,7 @@ export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWi
         await this.notifier.closeSessionTab(tab.id, worktreeId)
       }
     } else if (tab.type === 'agent-session') {
+      options.assertAgentSessionMutation?.(tab.sessionId)
       if (this.notifier?.closeSessionTab) {
         try {
           // Why: a reopened chat's window tab id is not derivable from its session; the window maps ours.
@@ -313,7 +303,8 @@ export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWi
       }
       await this.closeStructuredAgentSessionTab(
         tab,
-        structuredAgentSessionTabCloseCause(options.reason)
+        structuredAgentSessionTabCloseCause(options.reason),
+        options.assertAgentSessionMutation
       )
     } else if (!this.notifier?.closeSessionTab) {
       // Why: a headless host listed this editor from its own session, so it retires it there.

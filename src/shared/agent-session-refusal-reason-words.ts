@@ -78,6 +78,7 @@ const REASON_WORDS = {
     // The card's Cancel button stays; its notice names the step.
     cancelNotSaved: causeWords('cancelNotSaved', 'retry', 'tryAgain'),
     attachmentExpired: causeWords('attachmentExpired', 'actFirst', 'reattachFile'),
+    attachmentScopeUnverified: causeWords('attachmentScopeUnverified', 'actFirst', 'reattachFile'),
     conversationCleared: causeWords(
       'conversationCleared',
       'goElsewhere',
@@ -88,6 +89,22 @@ const REASON_WORDS = {
     // Only an older host sends this, for a /clear it never settled; only that host resolves it.
     conversationCommandUnconfirmed: codeWords('hostFinding'),
     conversationCommandInFlight: causeWords('commandRunning', 'wait', 'waitForCommand'),
+    conversationSwitchInFlight: causeWords(
+      'conversationSwitchRunning',
+      'wait',
+      'waitForConversationSwitch'
+    ),
+    conversationClearInFlight: causeWords('conversationClearRunning', 'wait', 'waitForCommand'),
+    conversationClearRequired: causeWords(
+      'conversationClearRequired',
+      'actFirst',
+      'openCurrentConversation'
+    ),
+    conversationParticipantParked: causeWords(
+      'conversationParticipantParked',
+      'goElsewhere',
+      'openCurrentConversation'
+    ),
     // The chat's agent process is being replaced, which a start or restart does.
     handoffInFlight: AGENT_STARTING,
     continuationSuperseded: causeWords('continuationSuperseded', 'nothingLeft'),
@@ -120,6 +137,8 @@ const REASON_WORDS = {
     claudeAccountSetupFailed: { fact: 'claudeAccountSetupFailed', action: 'retry' },
     agentCommandNotRunnable: { fact: 'agentCommandNotRunnable', action: 'actFirst' },
     runtimeNotInstalled: { fact: 'runtimeNotInstalled', action: 'actFirst' },
+    conversationStartupTrustRequired: codeWords('actFirst'),
+    conversationNativeRebuildRequired: codeWords('actFirst'),
     attachFailed: codeWords('retry')
   },
   agent_session_ownership_unknown: {

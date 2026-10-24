@@ -1,11 +1,13 @@
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
 
-/** Narrow a host inventory snapshot to the structured agent-session tabs it publishes. */
+/** Narrow a host inventory snapshot to its native chats and promoted conversations. */
 export function projectLocalStructuredSessionTabs(
   snapshot: RuntimeMobileSessionTabsResult
 ): RuntimeMobileSessionTabsResult {
   const structuredIds = new Set(
-    snapshot.tabs.filter((tab) => tab.type === 'agent-session').map((tab) => tab.id)
+    snapshot.tabs
+      .filter((tab) => tab.type === 'agent-session' || tab.type === 'conversation')
+      .map((tab) => tab.id)
   )
   const visibleHostTabIds = structuredIds
   const visibleIds = structuredIds

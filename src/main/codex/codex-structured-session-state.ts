@@ -1,3 +1,6 @@
+import type { CodexConversationEvidence } from './codex-conversation-evidence'
+import type { NativeConversationCapabilityObservation } from '../native-chat/conversations/conversation-native-capabilities'
+import type { ConversationOriginCorrelation } from '../native-chat/conversations/conversation-origin-correlation'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import type { StructuredAgentSessionAtRestCommands } from '../native-chat/agent-session-wire/structured-agent-session-at-rest-commands'
@@ -108,7 +111,8 @@ export type CodexStructuredSessionAdapterDeps = {
   /** Settle an admitted send by provider echo or rejection at its answered turn's end. */
   onDispatchSettledLate?: (
     input: { sessionId: string; clientMessageId: string } & (
-      | { providerIdentity: AgentJournalItemIdentity }
+      | ConversationOriginCorrelation
+      | { providerIdentity: AgentJournalItemIdentity; originCorrelation?: 'exact' }
       | ({
           state: 'rejected'
           answeredInTurn?: AgentJournalAnsweredTurnIdentity
@@ -133,6 +137,8 @@ export type CodexStructuredSessionAdapterDeps = {
 }
 
 export type CodexSession = {
+  conversationEvidence?: CodexConversationEvidence
+  contextDeliveryObservation?: NativeConversationCapabilityObservation
   events?: StructuredAgentSessionEventSink
   account?: AgentSessionAccountKind
   connection: CodexAppServerConnection

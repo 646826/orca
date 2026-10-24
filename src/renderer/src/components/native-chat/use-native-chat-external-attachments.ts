@@ -245,14 +245,13 @@ export function useNativeChatExternalAttachments({
           }
         }
       }
+      const localSession = owner.kind === 'local' ? owner.structuredSessionId : undefined
       return {
         chips,
         refusal,
         run,
-        preparationConsumer:
-          owner.kind === 'local' && owner.structuredSessionId
-            ? ('local-chat' as const)
-            : ('agent' as const)
+        localAttachmentOwner: localSession ? { sessionId: localSession } : undefined,
+        preparationConsumer: localSession ? ('local-chat' as const) : ('agent' as const)
       }
     },
     [attachResolvedPaths, resolveAttachmentOwner, setNotice]
@@ -276,6 +275,7 @@ export function useNativeChatExternalAttachments({
         await intake.run(reserveNativeChatAttachmentChips(intake.chips, paths))
       }
       deliver.preparationConsumer = intake.preparationConsumer
+      deliver.localAttachmentOwner = intake.localAttachmentOwner
       return deliver
     },
     [captureIntake, mountedRef, setNotice]

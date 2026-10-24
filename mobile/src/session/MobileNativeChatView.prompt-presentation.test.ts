@@ -109,6 +109,7 @@ function Harness(overrides: Overrides) {
   return createElement(MobileNativeChatView, {
     ...props,
     ...overrides,
+    readOnly: false,
     permission: shown.permission,
     question: shown.question,
     promptKey: shown.occurrenceKey,

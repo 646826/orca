@@ -1,3 +1,4 @@
+import { claudeConversationCapabilities } from './claude-conversation-capabilities'
 import { requireLegacyAgentSessionAccountHome } from '../../shared/agent-session-account-home'
 import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import { dispatchClaudeCommand } from './claude-structured-command-dispatch'
@@ -13,7 +14,7 @@ import { acquireClaudeSession } from './claude-structured-session-acquisition'
 import { supportsClaudeStructuredLocation } from './claude-structured-location-support'
 import { setClaudeStructuredSessionOption } from './claude-structured-options'
 import { dispatchClaudeMessage } from './claude-structured-message-options'
-import { readClaudeStructuredSessionOptions } from './claude-structured-session-options'
+import * as options from './claude-structured-session-options'
 import {
   ClaudeAcquisitionRegistry,
   type ClaudeAcquisitionAttempt,
@@ -205,6 +206,9 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     this.sessions.get(sessionId)?.commands.commands
   readonly atRestCommands: ClaudeStructuredSessionAdapterDeps['atRestCommands']
   holdsDispatch = (sessionId: string): boolean => claudeHoldsDispatch(this.sessions.get(sessionId))
+  contextDeliveryCapabilities = (sessionId: string) =>
+    claudeConversationCapabilities(this.sessions.get(sessionId))
+
   heldSends = (sessionId: string): ReadonlySet<string> | undefined => {
     const session = this.sessions.get(sessionId) ?? this.exits.get(sessionId)?.session
     const held = session && claudeHeldSends(session)
@@ -247,12 +251,12 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       throw error
     }
   }
-  readOptions = (input: { sessionId: string; fence: number }) =>
-    readClaudeStructuredSessionOptions(this.session(input.sessionId), this.deps.requestTimeoutMs)
-  readOptionRestoreFailures = (sessionId: string): readonly string[] => {
-    const session = this.sessions.get(sessionId)
-    return session?.retiredModel !== undefined && !session.options.has('model') ? ['model'] : []
-  }
+  readOptions = ({ sessionId }: { sessionId: string; fence: number }) =>
+    options.readClaudeStructuredSessionOptions(this.session(sessionId), this.deps.requestTimeoutMs)
+  projectOptions = (sessionId: string) =>
+    options.projectClaudeSessionOptions(this.sessions.get(sessionId))
+  readOptionRestoreFailures = (sessionId: string) =>
+    options.readClaudeOptionRestoreFailures(this.sessions.get(sessionId))
 
   releaseAcquisition = (input: { sessionId: string }): Promise<boolean> =>
     this.afterClose(input.sessionId, () => this.releaseProviderSession(input.sessionId))

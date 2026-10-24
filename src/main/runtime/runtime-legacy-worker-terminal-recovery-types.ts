@@ -35,6 +35,10 @@ export type TerminalWorkspaceLaunchScope = {
   folderWorkspace: FolderWorkspace | null
 }
 
+export type AgentLaunchScope = Pick<TerminalWorkspaceLaunchScope, 'repo' | 'path'> & {
+  connectionId?: string | null
+}
+
 export type LegacyWorkerRecoveryWorkspace = {
   scope: TerminalWorkspaceLaunchScope
   resolved: ResolvedWorktree

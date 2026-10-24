@@ -7,6 +7,7 @@ export type DroppedPathConsumer = 'agent' | 'main-reader' | 'local-chat'
 export type PrepareDroppedPathsRequest = {
   paths: string[]
   consumer: DroppedPathConsumer
+  localAttachmentOwner?: { sessionId: string }
 }
 
 export type PreparedDroppedPaths = {
